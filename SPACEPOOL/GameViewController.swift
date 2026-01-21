@@ -1,45 +1,43 @@
 //
 //  GameViewController.swift
-//  SPACEPOOL
+//  SpacePool
 //
-//  Created by Thomas Harris-Warrick on 1/21/26.
+//  Created by Thomas Harris-Warrick on 1/16/26.
 //
 
 import UIKit
 import SpriteKit
-import GameplayKit
 
 class GameViewController: UIViewController {
+    override func loadView() {
+        let skView = SKView(frame: UIScreen.main.bounds)
+        skView.backgroundColor = .black
+        skView.isOpaque = true
+        view = skView
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        if let view = self.view as! SKView? {
-            // Load the SKScene from 'GameScene.sks'
-            if let scene = SKScene(fileNamed: "GameScene") {
-                // Set the scale mode to scale to fit the window
-                scene.scaleMode = .aspectFill
-                
-                // Present the scene
-                view.presentScene(scene)
-            }
-            
-            view.ignoresSiblingOrder = true
-            
-            view.showsFPS = true
-            view.showsNodeCount = true
-        }
+        guard let skView = view as? SKView else { return }
+        
+        let scene = StarfieldScene(size: skView.bounds.size)
+        scene.backgroundColor = .black
+        scene.scaleMode = .resizeFill
+        
+        skView.presentScene(scene)
+        skView.ignoresSiblingOrder = true
+        
+        // Performance stats
+        skView.showsFPS = true
+        skView.showsNodeCount = true
+        skView.showsDrawCount = true
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            return .allButUpsideDown
-        } else {
-            return .all
-        }
+        return .landscape
     }
 
-    override var prefersStatusBarHidden: Bool {
-        return true
-    }
+    override var prefersStatusBarHidden: Bool { true }
 }
+

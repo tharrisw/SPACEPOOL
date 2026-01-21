@@ -1,8 +1,8 @@
 //
 //  GameScene.swift
-//  SPACEPOOL
+//  SpacePool
 //
-//  Created by Thomas Harris-Warrick on 1/21/26.
+//  Created by Thomas Harris-Warrick on 1/16/26.
 //
 
 import SpriteKit
