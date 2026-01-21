@@ -10,39 +10,6 @@ import SpriteKit
 import UIKit
 
 class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegate {
-    // MARK: - Table visibility state
-    private var isTableVisible: Bool = true
-    private var suppressTableUntilNextTap: Bool = false
-
-    // Convenience: find table container by name
-    private func currentTableContainer() -> SKNode? {
-        return self.childNode(withName: "BlockTable")
-    }
-
-    // Centralized visibility setter (fade optional)
-    private func setTableHidden(_ hidden: Bool, animated: Bool = false) {
-        isTableVisible = !hidden
-        guard let table = currentTableContainer() else { return }
-        if animated {
-            table.removeAllActions()
-            table.run(SKAction.fadeAlpha(to: hidden ? 0 : 1, duration: 0.15)) {
-                table.isHidden = hidden
-                if !hidden { table.alpha = 1 }
-            }
-        } else {
-            table.alpha = hidden ? 0 : 1
-            table.isHidden = hidden
-        }
-    }
-
-    // Apply current visibility to the existing table (call after building)
-    func applyTableVisibilityToCurrentTable() {
-        guard let table = currentTableContainer() else { return }
-        let shouldHide = (!isTableVisible) || suppressTableUntilNextTap
-        table.isHidden = shouldHide
-        table.alpha = shouldHide ? 0 : 1
-    }
-
     // MARK: - Configuration
     var physicsConfig = PhysicsConfiguration.default
     var tableConfig: TableConfiguration!
@@ -50,7 +17,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     // MARK: - Managers
     private var physicsAdjusterUI: PhysicsAdjusterUI?
     var gameStateManager: GameStateManager!
-    private var starManager: StarManager!
     
     // UI: Cue ball speed display
     private var cueBallSpeedLabel: SKLabelNode?
@@ -67,7 +33,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     
     // MARK: - Star Properties
     private var stars: [Star] = []
-    private var totalStarsSpawned: Int = 0
     private var timeSinceLastSpawn: TimeInterval = 0
     
     // MARK: - Star Configuration
@@ -76,11 +41,8 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     private let spawnInterval: TimeInterval = 0.1
     private let minSize: CGFloat = 1.0
     private let maxSize: CGFloat = 6.0
-    private let baseMinSpeed: Double = 80.0
-    private let baseMaxSpeed: Double = 250.0
     private var minSpeed: Double = 80.0
     private var maxSpeed: Double = 250.0
-    private let baseGrowthRate: Double = 3.0
     private var growthRate: Double = 3.0
     private let initialGrowthRate: Double = 0.8
     private let minGrowthMultiplier: Double = 0.8
@@ -167,7 +129,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     // Level progression
     private var obstacleNodes: [SKNode] = []
     private var isTransitioningLevel: Bool = false
-    private var pendingCueBallRespawnAction: SKAction?  // Track respawn to cancel if level ends
     
     // MARK: - Feature Flags
     let useBlockTablePrototype: Bool = true
@@ -207,13 +168,14 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         case .three: kindString = "THREE"
         case .four: kindString = "FOUR"
         case .five: kindString = "FIVE"
+        case .six: kindString = "SIX"
         }
         print("🎱 blockBallDidSink called for \(kindString) ball")
         print("📊 Score before: \(gameStateManager.currentScore)")
         
         // Adjust score based on ball kind
         switch ball.ballKind {
-        case .eight, .eleven, .two, .three, .four, .five:
+        case .eight, .eleven, .two, .three, .four, .five, .six:
             gameStateManager.addScore(1)
             
             let ballName: String
@@ -224,6 +186,7 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             case .three: ballName = "Three"
             case .four: ballName = "Four"
             case .five: ballName = "Five"
+            case .six: ballName = "Six"
             case .cue: ballName = "Cue" // Won't be reached but needed for exhaustiveness
             }
             
@@ -552,6 +515,7 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
         
         // Try physics adjuster UI first
         if physicsAdjusterUI?.handleTouchBegan(touch) == true {
@@ -568,9 +532,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
                 ball.beginGlobalAim()
             }
         }
-        
-        // cueBallController touch handling disabled; using global aiming
-        // cueBallController?.touchesBegan(touches)
         
         // Only used to skip the title animation
         skipTitleAnimation()
@@ -605,9 +566,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             }
             return
         }
-        
-        // cueBallController touch handling disabled; using global aiming
-        // cueBallController?.touchesMoved(touches)
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -635,9 +593,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             isGlobalAiming = false
             return
         }
-        
-        // cueBallController touch handling disabled; using global aiming
-        // cueBallController?.touchesEnded(touches)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -653,25 +608,11 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         physicsAdjusterUI?.updateForSizeChange()
     }
     
-    private func loadLevel() {
-        // Level loading disabled: keep score UI connected if labels exist
-        gameStateManager.levelValueLabel = levelValueLabel
-        gameStateManager.scoreValueLabel = scoreValueLabel
-        // Do not build or load any level content
-        return
-    }
-    
     func tableHeight(from sceneSize: CGSize) -> CGFloat {
         let screenSizeToUse = min(sceneSize.width, sceneSize.height) * 0.7
         return screenSizeToUse
     }
-    
-    private func logDifficulty() {
-        print("📈 Difficulty: \(gameStateManager.currentDifficulty)")
-    }
-    
 
-    
     func displayLevelAndScore() {
         // Remove any existing labels first to prevent duplicates
         levelHeadingLabel?.removeFromParent()
@@ -999,28 +940,23 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     private func startTitleAnimation() {
         titleAnimationManager = TitleAnimationManager(logoBlocks: logoBlocks)
         titleAnimationManager?.startAnimation { [weak self] in
-            guard let self = self else { return }
-            // After title fades in and completes, show level and score UI
-            // Ensure labels are created and displayed
-            self.displayLevelAndScore()
-            // Wire labels to game state for live updates
-            self.gameStateManager.levelValueLabel = self.levelValueLabel
-            self.gameStateManager.scoreValueLabel = self.scoreValueLabel
-            // Actual level content is triggered by the fade-in completion inside displayLevelAndScore()
+            self?.showGameUI()
         }
     }
     
     private func skipTitleAnimation() {
-        // Don't skip if labels are already displayed
-        if levelHeadingLabel != nil && scoreHeadingLabel != nil {
-            return
-        }
+        // Don't skip if game UI is already displayed
+        guard levelHeadingLabel == nil || scoreHeadingLabel == nil else { return }
         
         titleAnimationManager?.skipAnimation()
-        // When skipping, also show level and score immediately
-        self.displayLevelAndScore()
-        self.gameStateManager.levelValueLabel = self.levelValueLabel
-        self.gameStateManager.scoreValueLabel = self.scoreValueLabel
+    }
+    
+    private func showGameUI() {
+        // Show level and score UI
+        displayLevelAndScore()
+        // Wire labels to game state for live updates
+        gameStateManager.levelValueLabel = levelValueLabel
+        gameStateManager.scoreValueLabel = scoreValueLabel
     }
     
     private func setupSpacePoolLogo() {
@@ -1349,8 +1285,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     }
     
     private func spawnStar(at position: CGPoint, isInitial: Bool, angle: Double? = nil) {
-        totalStarsSpawned += 1
-        
         // Check for special event trigger (only for non-initial stars)
         var triggeredEvent: SpecialEvent? = nil
         if !isInitial && random.nextDouble() < specialEventOdds {
@@ -2376,80 +2310,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         cueBallController = nil
         
         print("🧹 Level teardown complete")
-    }
-
-    // MARK: - Level Building
-    private func buildLevelForCurrentLevel(animated: Bool) {
-        // Level building disabled: no-op
-        return
-    }
-
-    private func buildLevel(spec: LevelSpec, animated: Bool) {
-        // Level building disabled: no-op
-        return
-    }
-
-    private func spawnObstacles(count: Int) {
-        guard count > 0, let felt = blockFeltRect else { return }
-        obstacleNodes.removeAll()
-        let minSize: CGFloat = 20
-        let maxSize: CGFloat = 60
-        let minThickness: CGFloat = 6
-        let maxThickness: CGFloat = 20
-        let maxAttempts = 100
-        var placed = 0
-        var existingRects: [CGRect] = []
-        while placed < count {
-            var attempts = 0
-            var nodeToAdd: SKSpriteNode?
-            while attempts < maxAttempts {
-                attempts += 1
-                let w = CGFloat.random(in: minSize...maxSize)
-                let h = CGFloat.random(in: minThickness...maxThickness)
-                let size = Bool.random() ? CGSize(width: w, height: h) : CGSize(width: h, height: w)
-                let x = CGFloat.random(in: felt.minX + size.width/2 ... felt.maxX - size.width/2)
-                let y = CGFloat.random(in: felt.minY + size.height/2 ... felt.maxY - size.height/2)
-                let rect = CGRect(x: x - size.width/2, y: y - size.height/2, width: size.width, height: size.height)
-                // Avoid overlap with existing obstacles
-                let overlaps = existingRects.contains { $0.insetBy(dx: -10, dy: -10).intersects(rect) }
-                if overlaps { continue }
-                // Avoid overlapping pockets by rough check of center distance
-                if let centers = blockPocketCenters, let r = blockPocketRadius {
-                    let center = CGPoint(x: x, y: y)
-                    var nearPocket = false
-                    for c in centers { if hypot(center.x - c.x, center.y - c.y) < (r + 20) { nearPocket = true; break } }
-                    if nearPocket { continue }
-                }
-                let node = createObstacleNode(size: size)
-                node.position = CGPoint(x: x, y: y)
-                node.zRotation = CGFloat.random(in: 0..<(2 * .pi))
-                nodeToAdd = node
-                existingRects.append(rect)
-                break
-            }
-            if let node = nodeToAdd {
-                addChild(node)
-                obstacleNodes.append(node)
-                placed += 1
-            } else {
-                break
-            }
-        }
-    }
-
-    private func createObstacleNode(size: CGSize) -> SKSpriteNode {
-        let node = SKSpriteNode(color: tableConfig.frameColor.withAlphaComponent(0.95), size: size)
-        node.zPosition = 23
-        node.texture?.filteringMode = SKTextureFilteringMode.nearest
-        let body = SKPhysicsBody(rectangleOf: size)
-        body.isDynamic = false
-        body.friction = 0.08
-        body.restitution = 0.85
-        // Use same categories as rail blocks so balls collide properly
-        body.categoryBitMask = 0x1 << 1
-        body.collisionBitMask = 0x1 << 0
-        node.physicsBody = body
-        return node
     }
 }
   

@@ -38,6 +38,7 @@ public final class BlockBall: SKNode {
         case three
         case four
         case five
+        case six    // Gravity ball - attracts other balls when stationary
     }
     
     var ballKind: Kind { kind }
@@ -78,6 +79,14 @@ public final class BlockBall: SKNode {
     private var lastTouchPos: CGPoint = .zero
     private var isSinking = false  // Track if ball is currently sinking
     private var pocketInfoPrinted = false  // Debug flag for pocket info
+    
+    // Gravity ball (6-ball) state
+    private var hasMovedOnce = false  // Track if gravity ball has moved yet
+    private var isGravityActive = false  // Track if gravity is currently active
+    private let gravityRadius: CGFloat = 150.0  // 30 blocks * 5 points per block
+    private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
+    private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
+    private var gravityFieldNode: SKShapeNode?  // Visual indicator of gravity field
     
     // Debug frame counter for periodic physics verification
     #if DEBUG
@@ -205,7 +214,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five {
+        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
             cacheSpotTextures()
         }
 
@@ -254,7 +263,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five {
+        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
             cacheSpotTextures()
         }
 
@@ -352,6 +361,17 @@ public final class BlockBall: SKNode {
                 rotationX: 0,
                 rotationY: 0
             )
+        case .six:
+            // Solid dark green ball with white spot (gravity ball)
+            initialTexture = generator.generateTexture(
+                fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: 0,
+                rotationY: 0
+            )
         case .eleven:
             // Striped ball with maroon/burgundy stripe
             initialTexture = generator.generateTexture(
@@ -401,6 +421,8 @@ public final class BlockBall: SKNode {
             fillColor = SKColor.purple
         case .five:
             fillColor = SKColor.orange
+        case .six:
+            fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0) // Dark green
         }
 
         // Create a single texture for the ball for performance
@@ -451,6 +473,8 @@ public final class BlockBall: SKNode {
             fillColor = SKColor.purple
         case .five:
             fillColor = SKColor.orange
+        case .six:
+            fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0) // Dark green
         }
         
         // Create individual block sprites
@@ -531,9 +555,9 @@ public final class BlockBall: SKNode {
                     let cx = CGFloat(col) - half
                     let cy = CGFloat(row) - half
                     if shouldIncludeBlock(cx: cx, cy: cy) {
-                        // For 8-ball, 2-ball, 3-ball, and 4-ball: make one off-center block white
+                        // For 8-ball, 2-ball, 3-ball, 4-ball, and 6-ball: make one off-center block white
                         // Use block at position (1, 0) which is one block right of center
-                        let isSpotBlock = ((kind == .eight || kind == .two || kind == .three || kind == .four) && cx == 1 && cy == 0)
+                        let isSpotBlock = ((kind == .eight || kind == .two || kind == .three || kind == .four || kind == .six) && cx == 1 && cy == 0)
                         let blockColor = isSpotBlock ? SKColor.white : fillColor
                         
                         // Convert to UIKit coordinates (top-left origin)
@@ -669,7 +693,7 @@ public final class BlockBall: SKNode {
 
     // MARK: - Global aiming control API
     func beginGlobalAim(from startPointInScene: CGPoint) {
-        guard canShoot else { return }
+        // Allow aiming at any time - no canShoot check
         isAiming = true
         // Reset cached aim values; visuals will be shown on first drag update
         lastAimUnit = .zero
@@ -680,7 +704,7 @@ public final class BlockBall: SKNode {
     }
     
     func beginGlobalAim() {
-        guard canShoot else { return }
+        // Allow aiming at any time - no canShoot check
         isAiming = true
         lastAimUnit = .zero
         lastAimUnitWorld = .zero
@@ -736,7 +760,7 @@ public final class BlockBall: SKNode {
         let curvedPower = pow(normalizedDistance, powerCurveExponent)
         let power = curvedPower * maxImpulse
         let shootImpulse = CGVector(dx: -uxWorld * power, dy: -uyWorld * power)
-        canShoot = false
+        // No longer set canShoot = false - allow rapid fire
         restTimer = 0
         let tipStop: CGFloat = ballRadius + tipGap
         let finalTipPos = CGPoint(x: uxLocal * tipStop, y: uyLocal * tipStop)
@@ -793,8 +817,7 @@ public final class BlockBall: SKNode {
         // Prepare impulse (applied after snap animation completes)
         let shootImpulse = CGVector(dx: -uxWorld * power, dy: -uyWorld * power)
 
-        // Prevent new aim during the snap animation
-        canShoot = false
+        // No longer prevent new aim during the snap animation - allow rapid fire
         restTimer = 0
 
         // Compute final tip position just off the ball surface in ball's local space
@@ -837,17 +860,12 @@ public final class BlockBall: SKNode {
     // MARK: - Input handling
     func touchesBegan(_ touches: Set<UITouch>) {
         #if DEBUG
-        print("👉 touchesBegan received. canShoot=\(canShoot) sceneRefNil=\(sceneRef == nil) touchesCount=\(touches.count)")
+        print("👉 touchesBegan received. sceneRefNil=\(sceneRef == nil) touchesCount=\(touches.count)")
         #endif
         guard let touch = touches.first else { return }
         let space = self.parent ?? self
         let loc = touch.location(in: space)
-        if !canShoot {
-            #if DEBUG
-            print("⛔️ Ignoring touchesBegan: canShoot is false")
-            #endif
-            return
-        }
+        // Allow aiming at any time - no canShoot check
         // Consider a small halo around the ball for easier pickup (compute in parent space)
         let dx = loc.x - position.x
         let dy = loc.y - position.y
@@ -876,7 +894,8 @@ public final class BlockBall: SKNode {
         guard let touch = touches.first else { return }
         let space = self.parent ?? self
         let loc = touch.location(in: space)
-        if !isAiming && canShoot {
+        // Allow starting aim on move - no canShoot check
+        if !isAiming {
             let dx = loc.x - position.x
             let dy = loc.y - position.y
             let dist = hypot(dx, dy)
@@ -938,14 +957,11 @@ public final class BlockBall: SKNode {
         // Prepare impulse (applied after snap animation completes)
         let shootImpulse = CGVector(dx: -uxWorld * power, dy: -uyWorld * power)
 
-        // Prevent new aim during the snap animation
-        canShoot = false
+        // No longer prevent new aim during the snap animation - allow rapid fire
         restTimer = 0
         isAiming = false
 
         // Compute final tip position just off the ball surface in ball's local space
-        // stickContainer's position is in this node's local coordinates, with its origin at the tip
-        // We want the tip to end at a small gap from the ball center along the aim direction
         let tipStop: CGFloat = ballRadius + tipGap
         let finalTipPos = CGPoint(x: uxLocal * tipStop, y: uyLocal * tipStop)
 
@@ -1348,6 +1364,17 @@ public final class BlockBall: SKNode {
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )
+        case .six:
+            // Solid dark green ball with white spot (gravity ball)
+            newTexture = generator.generateTexture(
+                fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
         case .eleven:
             // Striped ball with maroon/burgundy stripe
             newTexture = generator.generateTexture(
@@ -1485,8 +1512,43 @@ public final class BlockBall: SKNode {
         let ls = hypot(body.velocity.dx, body.velocity.dy)
         let angSpeed = abs(body.angularVelocity)
         
+        // Track if 6-ball has moved for the first time
+        if kind == .six && !hasMovedOnce && ls > 1.0 {
+            hasMovedOnce = true
+            #if DEBUG
+            print("🌍 6-ball has moved for the first time - gravity will activate when it comes to rest")
+            #endif
+        }
+        
+        // Update gravity state for 6-ball
+        if kind == .six && hasMovedOnce {
+            // Check if ball is at rest
+            if ls < gravityRestThreshold && angSpeed < restAngularSpeedThreshold {
+                if !isGravityActive {
+                    isGravityActive = true
+                    showGravityField()
+                    #if DEBUG
+                    print("🌍 6-ball gravity ACTIVATED (ball at rest)")
+                    #endif
+                }
+            } else {
+                if isGravityActive {
+                    isGravityActive = false
+                    hideGravityField()
+                    #if DEBUG
+                    print("🌍 6-ball gravity DEACTIVATED (ball moving)")
+                    #endif
+                }
+            }
+        }
+        
+        // Apply gravity effect if active
+        if kind == .six && isGravityActive {
+            applyGravityEffect()
+        }
+        
         // Update rolling animation for numbered balls (solid spots and striped)
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four {
+        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .six {
             updateRollingAnimation(linearSpeed: ls, deltaTime: deltaTime)
         }
         
@@ -1515,43 +1577,22 @@ public final class BlockBall: SKNode {
         
         // Spot animation removed - balls now have static spots
         
-        // Only check for rest if we're currently not allowed to shoot
-        if !canShoot {
-            // Snap-to-stop: if speed stays below thresholds briefly, zero velocity
-            if ls < stopSpeedThreshold && angSpeed < stopAngularThreshold {
-                lowSpeedTimerForStop += deltaTime
-                if lowSpeedTimerForStop >= stopHoldDuration {
-                    body.velocity = .zero
-                    body.angularVelocity = 0
-                    lowSpeedTimerForStop = 0
-                    canShoot = true
-                    restTimer = 0
-                    #if DEBUG
-                    print("🛑 Snap-to-stop engaged: velocities zeroed, canShoot=true")
-                    #endif
-                }
-            } else {
+        // Snap-to-stop: if speed stays below thresholds briefly, zero velocity
+        // This helps balls come to a clean stop without drifting endlessly
+        if ls < stopSpeedThreshold && angSpeed < stopAngularThreshold {
+            lowSpeedTimerForStop += deltaTime
+            if lowSpeedTimerForStop >= stopHoldDuration {
+                body.velocity = .zero
+                body.angularVelocity = 0
                 lowSpeedTimerForStop = 0
-            }
-            
-            // Backup rest check with lower thresholds
-            if ls < restLinearSpeedThreshold && angSpeed < restAngularSpeedThreshold {
-                restTimer += deltaTime
-                if restTimer >= restCheckDuration {
-                    canShoot = true
-                    restTimer = 0
-                    lowSpeedTimerForStop = 0
-                    #if DEBUG
-                    print("✅ BlockBall at rest (backup check), canShoot again.")
-                    #endif
-                }
-            } else {
                 restTimer = 0
+                #if DEBUG
+                print("🛑 Snap-to-stop engaged: velocities zeroed")
+                #endif
             }
         } else {
-            // Reset timers when we can shoot
-            restTimer = 0
             lowSpeedTimerForStop = 0
+            restTimer = 0
         }
     }
     
@@ -1587,6 +1628,85 @@ public final class BlockBall: SKNode {
         #endif
     }
     
+    // MARK: - Gravity Effect (6-Ball)
+    
+    /// Show the gravity field visual indicator
+    private func showGravityField() {
+        // Remove existing field if any
+        gravityFieldNode?.removeFromParent()
+        
+        // Create a pulsing circle to indicate gravity field
+        let field = SKShapeNode(circleOfRadius: gravityRadius)
+        field.strokeColor = SKColor(red: 0.0, green: 0.8, blue: 0.0, alpha: 0.3)
+        field.lineWidth = 2.0
+        field.fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 0.05)
+        field.zPosition = -1  // Behind the ball
+        field.name = "gravityField"
+        
+        // Add pulsing animation
+        let scaleUp = SKAction.scale(to: 1.1, duration: 1.5)
+        let scaleDown = SKAction.scale(to: 0.9, duration: 1.5)
+        let pulse = SKAction.sequence([scaleUp, scaleDown])
+        let repeatPulse = SKAction.repeatForever(pulse)
+        field.run(repeatPulse)
+        
+        // Fade in
+        field.alpha = 0
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
+        field.run(fadeIn)
+        
+        addChild(field)
+        gravityFieldNode = field
+    }
+    
+    /// Hide the gravity field visual indicator
+    private func hideGravityField() {
+        guard let field = gravityFieldNode else { return }
+        
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        field.run(SKAction.sequence([fadeOut, remove]))
+        gravityFieldNode = nil
+    }
+    
+    /// Apply gravity effect from this 6-ball to nearby balls
+    /// Attracts ALL balls (including cue balls) within the gravity radius
+    private func applyGravityEffect() {
+        guard let scene = self.scene ?? self.sceneRef else { return }
+        
+        // Find all balls in the scene
+        let allBalls = scene.children.compactMap { $0 as? BlockBall }
+        
+        for ball in allBalls {
+            // Don't attract ourselves
+            if ball === self {
+                continue
+            }
+            
+            // Calculate distance to this ball
+            let dx = self.position.x - ball.position.x
+            let dy = self.position.y - ball.position.y
+            let distance = hypot(dx, dy)
+            
+            // Check if within gravity radius
+            if distance > 0 && distance < gravityRadius {
+                // Calculate force direction (normalized)
+                let forceX = dx / distance
+                let forceY = dy / distance
+                
+                // Apply force that falls off with distance (inverse square law feels too strong, use linear)
+                let distanceRatio = 1.0 - (distance / gravityRadius)  // 1.0 at center, 0.0 at edge
+                let force = gravityStrength * distanceRatio
+                
+                // Apply impulse to the target ball
+                if let targetBody = ball.physicsBody {
+                    let impulse = CGVector(dx: forceX * force, dy: forceY * force)
+                    targetBody.applyImpulse(impulse)
+                }
+            }
+        }
+    }
+    
     // MARK: - Accessory Management
     
     /// Attach an accessory to this ball
@@ -1611,6 +1731,9 @@ public final class BlockBall: SKNode {
     }
     
     deinit {
+        // Clean up gravity field
+        gravityFieldNode?.removeFromParent()
+        
         // Clean up accessories when ball is removed
         BallAccessoryManager.shared.cleanupAccessories(for: self)
     }

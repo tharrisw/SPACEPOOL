@@ -291,6 +291,11 @@ final class BallSpriteGenerator {
         return generator.generateAllTextures(fillColor: .orange, shape: shape, isStriped: false)
     }
     
+    static func generateFor6Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
+        let generator = BallSpriteGenerator()
+        return generator.generateAllTextures(fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0), shape: shape, isStriped: false)
+    }
+    
     static func generateFor11Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
         let generator = BallSpriteGenerator()
         // 11-ball is white with a red stripe
@@ -328,10 +333,12 @@ extension BlockBall {
             textures = BallSpriteGenerator.generateFor4Ball(shape: shape)
         case .five:
             textures = BallSpriteGenerator.generateFor5Ball(shape: shape)
+        case .six:
+            textures = BallSpriteGenerator.generateFor6Ball(shape: shape)
         case .eleven:
             textures = BallSpriteGenerator.generateFor11Ball(shape: shape)
-        default:
-            return  // Only numbered balls have spots/stripes
+        case .cue:
+            return  // Cue ball has no spots/stripes
         }
         
         if let ballSprite = visualContainer.children.first(where: { $0.name == "ballSprite" }) as? SKSpriteNode,

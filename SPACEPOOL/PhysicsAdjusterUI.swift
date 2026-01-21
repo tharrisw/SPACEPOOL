@@ -873,7 +873,8 @@ class PhysicsAdjusterUI {
             (.two, "2-Ball", .blue, false, nil),
             (.three, "3-Ball", .red, false, nil),
             (.four, "4-Ball", .purple, false, nil),
-            (.five, "5-Ball", .orange, false, nil)
+            (.five, "5-Ball", .orange, false, nil),
+            (.six, "6-Ball", SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0), false, nil)
         ]
         
         let spriteSize: CGFloat = 25  // 5x5 blocks at 5pt each
@@ -981,6 +982,8 @@ class PhysicsAdjusterUI {
             ballKind = .four
         case "five":
             ballKind = .five
+        case "six":
+            ballKind = .six
         default:
             print("🚫 Unknown ball kind: \(kindString)")
             return
@@ -1017,6 +1020,8 @@ class PhysicsAdjusterUI {
             customHP = 20   // 2-ball gets 20 HP
         case .five:
             customHP = 50   // 5-ball gets 50 HP (low HP with flying)
+        case .six:
+            customHP = 50   // 6-ball gets 50 HP (gravity ball)
         default:
             customHP = nil  // Use default HP
         }
@@ -1272,7 +1277,7 @@ class PhysicsAdjusterUI {
         flyingButton.addChild(flyingLabel)
         
         // Calculate content height and max scroll offset
-        // The lowest element is now the flying accessory button
+        // The lowest element is now the flying button
         let lowestElementY = flyingButtonY - flyingButtonHeight/2
         let contentHeight = abs(lowestElementY) + (maxHeight/2 - 60) + 50 // Add some padding at bottom
         
