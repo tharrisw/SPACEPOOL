@@ -26,8 +26,10 @@ class PhysicsAdjusterUI {
     // Toggle buttons for debug features
     private var healthBarsEnabled: Bool = false
     private var damageNumbersEnabled: Bool = false
+    private var hatsEnabled: Bool = true  // Hats enabled by default
     private var healthBarsToggle: SKShapeNode?
     private var damageNumbersToggle: SKShapeNode?
+    private var hatsToggle: SKShapeNode?
     
     // MARK: - UserDefaults Keys
     private enum SettingsKey {
@@ -49,6 +51,7 @@ class PhysicsAdjusterUI {
         static let stopAngularThreshold = "spacepool.stopAngularThreshold"
         static let healthBarsEnabled = "spacepool.healthBarsEnabled"
         static let damageNumbersEnabled = "spacepool.damageNumbersEnabled"
+        static let hatsEnabled = "spacepool.hatsEnabled"
         static let fourBallDamageRadius = "spacepool.fourBallDamageRadius"
         static let fourBallMaxTriggers = "spacepool.fourBallMaxTriggers"
     }
@@ -97,6 +100,14 @@ class PhysicsAdjusterUI {
         if defaults.object(forKey: SettingsKey.damageNumbersEnabled) != nil {
             damageNumbersEnabled = defaults.bool(forKey: SettingsKey.damageNumbersEnabled)
         }
+        if defaults.object(forKey: SettingsKey.hatsEnabled) != nil {
+            hatsEnabled = defaults.bool(forKey: SettingsKey.hatsEnabled)
+        } else {
+            hatsEnabled = true  // Default to enabled
+        }
+        
+        // Apply hats setting to the accessory manager
+        BallAccessoryManager.shared.setHatsEnabled(hatsEnabled)
     }
     
     /// Apply loaded settings to the scene after it's fully initialized
@@ -567,6 +578,23 @@ class PhysicsAdjusterUI {
                     }
                     // Save to UserDefaults
                     saveSetting(SettingsKey.damageNumbersEnabled, value: damageNumbersEnabled)
+                    return true
+                }
+            }
+            
+            // Check hats toggle (in contentNode)
+            if let hatsToggleButton = contentNode.childNode(withName: "//hatsToggle") as? SKShapeNode {
+                if hatsToggleButton.contains(locInContent) {
+                    hatsEnabled.toggle()
+                    updateToggleButton(hatsToggleButton, enabled: hatsEnabled, title: "Show Hats on Cue Balls")
+                    // Update hat visibility globally
+                    BallAccessoryManager.shared.setHatsEnabled(hatsEnabled)
+                    // Apply to all existing cue balls
+                    if let scene = scene as? StarfieldScene {
+                        scene.updateHatsOnAllCueBalls()
+                    }
+                    // Save to UserDefaults
+                    saveSetting(SettingsKey.hatsEnabled, value: hatsEnabled)
                     return true
                 }
             }
@@ -1210,8 +1238,19 @@ class PhysicsAdjusterUI {
         contentNode.addChild(dmgToggle)
         damageNumbersToggle = dmgToggle
         
+        // Hats Toggle (in scrollable content)
+        let hatsToggleY = dmgToggleY - 50
+        let hatsToggleButton = createToggleButton(
+            title: "Show Hats on Cue Balls",
+            position: CGPoint(x: 0, y: hatsToggleY),
+            name: "hatsToggle",
+            enabled: hatsEnabled
+        )
+        contentNode.addChild(hatsToggleButton)
+        hatsToggle = hatsToggleButton
+        
         // Test Flying Accessory Button (in scrollable content)
-        let flyingButtonY = dmgToggleY - 60
+        let flyingButtonY = hatsToggleY - 60
         let flyingButtonWidth: CGFloat = buttonWidth
         let flyingButtonHeight: CGFloat = 44
         let flyingButton = SKShapeNode(rectOf: CGSize(width: flyingButtonWidth, height: flyingButtonHeight), cornerRadius: 10)

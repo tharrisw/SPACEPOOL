@@ -41,4 +41,29 @@ extension StarfieldScene {
     func allCueBalls() -> [BlockBall] {
         return self.children.compactMap { $0 as? BlockBall }.filter { $0.ballKind == .cue }
     }
+    
+    /// Update hat visibility on all cue balls based on current setting
+    func updateHatsOnAllCueBalls() {
+        let cueBalls = allCueBalls()
+        let hatsEnabled = BallAccessoryManager.shared.areHatsEnabled()
+        
+        for ball in cueBalls {
+            if hatsEnabled {
+                // Add hat if not already present
+                if !BallAccessoryManager.shared.hasAnyHat(ball: ball) {
+                    _ = BallAccessoryManager.shared.attachRandomHat(to: ball)
+                }
+            } else {
+                // Remove hat if present
+                if BallAccessoryManager.shared.hasAnyHat(ball: ball) {
+                    BallAccessoryManager.shared.removeAllHats(from: ball)
+                }
+            }
+        }
+        
+        #if DEBUG
+        print("🎩 Updated hats on \(cueBalls.count) cue balls (hats \(hatsEnabled ? "enabled" : "disabled"))")
+        #endif
+    }
 }
+

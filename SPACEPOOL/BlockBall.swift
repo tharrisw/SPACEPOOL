@@ -230,6 +230,11 @@ public final class BlockBall: SKNode {
         if kind == .five {
             _ = attachAccessory("flying")
         }
+        
+        // Attach random hat to cue balls for cosmetic decoration (if hats are enabled)
+        if kind == .cue && BallAccessoryManager.shared.areHatsEnabled() {
+            _ = BallAccessoryManager.shared.attachRandomHat(to: self)
+        }
     }
 
     override init() {

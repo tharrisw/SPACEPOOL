@@ -400,6 +400,289 @@ final class FlyingAccessory: BallAccessoryProtocol {
     }
 }
 
+/// Hat accessory - purely cosmetic decoration that sits on top of the ball
+/// Hats have no physics impact and don't prevent sinking
+final class HatAccessory: BallAccessoryProtocol {
+    let id: String
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private let blockSize: CGFloat = 5.0
+    private weak var ball: BlockBall?
+    
+    enum HatStyle {
+        case topHat      // Classic tall top hat
+        case bowler      // Round bowler hat
+        case baseball    // Baseball cap with visor
+        case wizard      // Tall pointed wizard hat
+        case cowboy      // Western cowboy hat
+    }
+    
+    private let style: HatStyle
+    
+    init(style: HatStyle) {
+        self.style = style
+        self.id = "hat_\(style)"
+    }
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Create hat visual based on style
+        let hatNode = createHatNode()
+        // Position lower to overlap with ball - makes it look like the ball is wearing it
+        // Ball radius is ~12.5, so positioning at y: 5 puts the brim inside the top of the ball
+        hatNode.position = CGPoint(x: 0, y: 5)
+        hatNode.zPosition = 10 // Above ball
+        visualNode.addChild(hatNode)
+        
+        // Add visual node to ball's visual container (no physics!)
+        ball.visualContainer.addChild(visualNode)
+        
+        #if DEBUG
+        print("🎩 Hat accessory '\(style)' attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        visualNode.removeFromParent()
+        self.ball = nil
+        
+        #if DEBUG
+        print("🎩 Hat accessory '\(style)' detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // Hats are purely visual - they just follow the ball automatically
+        // since they're children of the visualContainer
+        
+        // Optional: Add slight bobbing animation when ball is moving
+        guard let body = ball.physicsBody else { return }
+        let speed = hypot(body.velocity.dx, body.velocity.dy)
+        
+        if speed > 10 {
+            // Gentle bobbing proportional to speed
+            let bobAmount: CGFloat = 0.5
+            let bobSpeed: CGFloat = 0.1
+            let bob = sin(CGFloat(CACurrentMediaTime()) * bobSpeed * speed) * bobAmount
+            visualNode.position = CGPoint(x: 0, y: bob)
+        } else {
+            visualNode.position = .zero
+        }
+    }
+    
+    private func createHatNode() -> SKNode {
+        let container = SKNode()
+        container.name = "hat_\(style)"
+        
+        switch style {
+        case .topHat:
+            createTopHat(in: container)
+        case .bowler:
+            createBowlerHat(in: container)
+        case .baseball:
+            createBaseballCap(in: container)
+        case .wizard:
+            createWizardHat(in: container)
+        case .cowboy:
+            createCowboyHat(in: container)
+        }
+        
+        return container
+    }
+    
+    private func createBlock(at position: CGPoint, color: UIColor) -> SKSpriteNode {
+        let block = SKSpriteNode(color: color, size: CGSize(width: blockSize, height: blockSize))
+        block.position = position
+        
+        // Add subtle border for definition
+        let border = SKShapeNode(rectOf: CGSize(width: blockSize, height: blockSize))
+        border.strokeColor = UIColor(white: 0, alpha: 0.2)
+        border.lineWidth = 0.5
+        border.fillColor = .clear
+        block.addChild(border)
+        
+        return block
+    }
+    
+    private func createTopHat(in container: SKNode) {
+        // Classic top hat - black with a band
+        let black = UIColor.black
+        let white = UIColor.white
+        
+        // Brim (wide, 5 blocks wide)
+        for x in -2...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 0), color: black)
+            container.addChild(block)
+        }
+        
+        // Hat body (tall cylinder, 3 blocks wide, 4 blocks tall)
+        for y in 1...4 {
+            for x in -1...1 {
+                let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: CGFloat(y) * blockSize), color: black)
+                container.addChild(block)
+            }
+        }
+        
+        // White band (middle of hat)
+        for x in -1...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 2 * blockSize), color: white)
+            container.addChild(block)
+        }
+        
+        // Top of hat
+        for x in -1...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 5 * blockSize), color: black)
+            container.addChild(block)
+        }
+    }
+    
+    private func createBowlerHat(in container: SKNode) {
+        // Round bowler hat - brown/tan color
+        let brown = UIColor(red: 0.4, green: 0.3, blue: 0.2, alpha: 1.0)
+        
+        // Brim (4 blocks wide)
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 0), color: brown)
+            container.addChild(block)
+        }
+        
+        // Rounded dome (getting narrower as it goes up)
+        // Row 1: 4 blocks
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: blockSize), color: brown)
+            container.addChild(block)
+        }
+        
+        // Row 2: 3 blocks
+        for x in 0...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 2 * blockSize), color: brown)
+            container.addChild(block)
+        }
+        
+        // Row 3: 2 blocks (top)
+        for x in 0...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 3 * blockSize), color: brown)
+            container.addChild(block)
+        }
+    }
+    
+    private func createBaseballCap(in container: SKNode) {
+        // Baseball cap with visor - red cap with white logo
+        let red = UIColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1.0)
+        let white = UIColor.white
+        
+        // Visor (extends forward)
+        for x in 0...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: blockSize), color: red)
+            container.addChild(block)
+        }
+        
+        // Cap body (rounded dome, 3 blocks wide, 2 blocks tall)
+        for x in -1...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 2 * blockSize), color: red)
+            container.addChild(block)
+        }
+        
+        // Top row (narrower)
+        for x in -1...0 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 3 * blockSize), color: red)
+            container.addChild(block)
+        }
+        
+        // White logo on front
+        let logo = createBlock(at: CGPoint(x: 0, y: 2 * blockSize), color: white)
+        container.addChild(logo)
+    }
+    
+    private func createWizardHat(in container: SKNode) {
+        // Tall pointed wizard hat - purple with stars
+        let purple = UIColor(red: 0.5, green: 0.2, blue: 0.8, alpha: 1.0)
+        let yellow = UIColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 1.0)
+        
+        // Brim (wide, 5 blocks)
+        for x in -2...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 0), color: purple)
+            container.addChild(block)
+        }
+        
+        // Cone shape (getting narrower as it goes up)
+        // Row 1: 4 blocks
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: blockSize), color: purple)
+            container.addChild(block)
+        }
+        
+        // Row 2: 3 blocks
+        for x in -1...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 2 * blockSize), color: purple)
+            container.addChild(block)
+        }
+        
+        // Row 3: 3 blocks
+        for x in -1...1 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 3 * blockSize), color: purple)
+            container.addChild(block)
+        }
+        
+        // Row 4: 2 blocks
+        for x in -1...0 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 4 * blockSize), color: purple)
+            container.addChild(block)
+        }
+        
+        // Row 5: 1 block (tip)
+        let tip = createBlock(at: CGPoint(x: 0, y: 5 * blockSize), color: purple)
+        container.addChild(tip)
+        
+        // Add yellow star decorations
+        let star1 = createBlock(at: CGPoint(x: 0, y: 2 * blockSize), color: yellow)
+        container.addChild(star1)
+    }
+    
+    private func createCowboyHat(in container: SKNode) {
+        // Western cowboy hat - tan/beige with wide brim
+        let tan = UIColor(red: 0.8, green: 0.7, blue: 0.5, alpha: 1.0)
+        let brown = UIColor(red: 0.4, green: 0.3, blue: 0.2, alpha: 1.0)
+        
+        // Wide brim with curved edges (6 blocks wide, curved)
+        for x in -2...3 {
+            let y: CGFloat = (x == -2 || x == 3) ? -0.5 : 0 // Curve upward at edges
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: y * blockSize), color: tan)
+            container.addChild(block)
+        }
+        
+        // Crown base (4 blocks wide)
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: blockSize), color: tan)
+            container.addChild(block)
+        }
+        
+        // Crown middle (4 blocks wide, creased in center)
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 2 * blockSize), color: tan)
+            container.addChild(block)
+        }
+        
+        // Crown top (3 blocks, indented in middle for crease)
+        let topLeft = createBlock(at: CGPoint(x: -blockSize, y: 3 * blockSize), color: tan)
+        container.addChild(topLeft)
+        
+        let topRight = createBlock(at: CGPoint(x: blockSize, y: 3 * blockSize), color: tan)
+        container.addChild(topRight)
+        
+        let topRight2 = createBlock(at: CGPoint(x: 2 * blockSize, y: 3 * blockSize), color: tan)
+        container.addChild(topRight2)
+        
+        // Add brown band around base
+        for x in -1...2 {
+            let block = createBlock(at: CGPoint(x: CGFloat(x) * blockSize, y: 1.5 * blockSize), color: brown)
+            container.addChild(block)
+        }
+    }
+}
+
 /// Manager for ball accessories
 final class BallAccessoryManager {
     static let shared = BallAccessoryManager()
@@ -414,6 +697,13 @@ final class BallAccessoryManager {
     private func registerDefaultAccessories() {
         // Register built-in accessories
         registerAccessory(FlyingAccessory())
+        
+        // Register all hat styles
+        registerAccessory(HatAccessory(style: .topHat))
+        registerAccessory(HatAccessory(style: .bowler))
+        registerAccessory(HatAccessory(style: .baseball))
+        registerAccessory(HatAccessory(style: .wizard))
+        registerAccessory(HatAccessory(style: .cowboy))
     }
     
     func registerAccessory(_ accessory: BallAccessoryProtocol) {
@@ -441,6 +731,16 @@ final class BallAccessoryManager {
         switch id {
         case "flying":
             accessory = FlyingAccessory()
+        case "hat_topHat":
+            accessory = HatAccessory(style: .topHat)
+        case "hat_bowler":
+            accessory = HatAccessory(style: .bowler)
+        case "hat_baseball":
+            accessory = HatAccessory(style: .baseball)
+        case "hat_wizard":
+            accessory = HatAccessory(style: .wizard)
+        case "hat_cowboy":
+            accessory = HatAccessory(style: .cowboy)
         default:
             print("⚠️ Cannot instantiate accessory '\(id)'")
             return false
@@ -471,7 +771,7 @@ final class BallAccessoryManager {
             print("   Before: \(collisionBitMaskBefore ?? 0), After: \(ball.physicsBody?.collisionBitMask ?? 0)")
         }
         
-        print("✅ Accessory attached - ball physics unchanged, wings are independent scene nodes")
+        print("✅ Accessory attached - ball physics unchanged")
         #endif
         
         // Track accessory
@@ -543,5 +843,51 @@ final class BallAccessoryManager {
             }
         }
         ballAccessories[ballID] = nil
+    }
+    
+    /// Attach a random hat accessory to a ball
+    /// - Parameter ball: The ball to attach a hat to
+    /// - Returns: True if a hat was successfully attached
+    func attachRandomHat(to ball: BlockBall) -> Bool {
+        let hatStyles = ["hat_topHat", "hat_bowler", "hat_baseball", "hat_wizard", "hat_cowboy"]
+        guard let randomHat = hatStyles.randomElement() else { return false }
+        
+        #if DEBUG
+        print("🎩 Attaching random hat '\(randomHat)' to \(ball.ballKind) ball")
+        #endif
+        
+        return attachAccessory(id: randomHat, to: ball)
+    }
+    
+    // MARK: - Global Hat Settings
+    
+    private var hatsEnabled: Bool = true
+    
+    /// Set whether hats are enabled globally
+    func setHatsEnabled(_ enabled: Bool) {
+        hatsEnabled = enabled
+        
+        #if DEBUG
+        print("🎩 Hats globally \(enabled ? "enabled" : "disabled")")
+        #endif
+    }
+    
+    /// Check if hats are currently enabled
+    func areHatsEnabled() -> Bool {
+        return hatsEnabled
+    }
+    
+    /// Remove all hat accessories from a ball
+    func removeAllHats(from ball: BlockBall) {
+        let hatIDs = ["hat_topHat", "hat_bowler", "hat_baseball", "hat_wizard", "hat_cowboy"]
+        for hatID in hatIDs {
+            _ = removeAccessory(id: hatID, from: ball)
+        }
+    }
+    
+    /// Check if a ball has any hat accessory
+    func hasAnyHat(ball: BlockBall) -> Bool {
+        let hatIDs = ["hat_topHat", "hat_bowler", "hat_baseball", "hat_wizard", "hat_cowboy"]
+        return hatIDs.contains { hasAccessory(ball: ball, id: $0) }
     }
 }
