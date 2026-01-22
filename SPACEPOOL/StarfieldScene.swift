@@ -391,15 +391,15 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Reset game state
         gameStateManager.resetProgress()
         
-        // Clear other stored variables to defaults
+        // Delete ALL locally saved data
         let defaults = UserDefaults.standard
-        // Known keys used in this project
-        defaults.removeObject(forKey: "StarfieldRandomSeed")
-        defaults.removeObject(forKey: "CurrentLevel")
-        defaults.removeObject(forKey: "CurrentScore")
+        let domain = Bundle.main.bundleIdentifier!
+        defaults.removePersistentDomain(forName: domain)
         
         // Synchronize
         defaults.synchronize()
+        
+        print("🗑️ All locally saved data deleted")
         
         // Teardown current level and return to title screen
         teardownCurrentLevel()

@@ -29,6 +29,7 @@
 		4EC47E942F21E2AE00CA7351 /* EXPLODE_ON_DESTROY_BUG_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = EXPLODE_ON_DESTROY_BUG_FIX.md; sourceTree = "<group>"; };
 		4EC47E952F21E3AA00CA7351 /* SPAWN_VALIDATION_DEBUG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SPAWN_VALIDATION_DEBUG.md; sourceTree = "<group>"; };
 		4EC47E962F22633500CA7351 /* YELLOW_BALL_COLOR_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = YELLOW_BALL_COLOR_FIX.md; sourceTree = "<group>"; };
+		4EC47EE32F22AA2B00CA7351 /* SETTINGS_OVERLAY_ACCESSORY_UPDATE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SETTINGS_OVERLAY_ACCESSORY_UPDATE.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +73,7 @@
 				4EC47E942F21E2AE00CA7351 /* EXPLODE_ON_DESTROY_BUG_FIX.md */,
 				4EC47E952F21E3AA00CA7351 /* SPAWN_VALIDATION_DEBUG.md */,
 				4EC47E962F22633500CA7351 /* YELLOW_BALL_COLOR_FIX.md */,
+				4EC47EE32F22AA2B00CA7351 /* SETTINGS_OVERLAY_ACCESSORY_UPDATE.md */,
 			);
 			sourceTree = "<group>";
 		};

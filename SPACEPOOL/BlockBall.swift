@@ -41,7 +41,7 @@ public final class BlockBall: SKNode {
         case seven   // Burning ball - catches fire on first movement, immune to burn damage (dark red solid)
         case eight   // Classic 8-ball (black solid)
         case nine    // Standard 9-ball (yellow striped)
-        case ten     // Standard 10-ball (blue striped)
+        case ten     // Speedy ball - moves at 2x speed with 2x collision power (blue striped)
         case eleven  // Explode on contact ball - instantly explodes when hit by any ball (red striped)
         case twelve  // Standard 12-ball (purple striped)
         case thirteen // Standard 13-ball (orange striped)
@@ -228,6 +228,18 @@ public final class BlockBall: SKNode {
         // (charges for 1s then releases damaging pulse when hit)
         if kind == .four {
             _ = attachAccessory("pulse")
+        }
+        
+        // Attach healing accessory to 6-balls
+        // (heals nearby cue balls when at rest)
+        if kind == .six {
+            _ = attachAccessory("healing")
+        }
+        
+        // Attach speedy accessory to 10-balls
+        // (2x speed and power from collisions)
+        if kind == .ten {
+            _ = attachAccessory("speedy")
         }
         
         // 7-balls will get burning accessory after first movement (see update method)

@@ -1409,8 +1409,341 @@ extension CGPath {
     }
 }
 
+/// Speedy accessory - makes the ball move twice as fast and receive double impulses
+/// The ball moves at 2x velocity and receives 2x power from collisions
+final class SpeedyAccessory: BallAccessoryProtocol {
+    let id = "speedy"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private let speedMultiplier: CGFloat = 2.0
+    
+    // Visual indicator
+    private var speedLinesContainer: SKNode?
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Add visual speed lines indicator
+        createSpeedLines(on: ball)
+        
+        #if DEBUG
+        print("⚡ Speedy accessory attached to \(ball.ballKind) ball (2x speed/power)")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        speedLinesContainer?.removeFromParent()
+        speedLinesContainer = nil
+        self.ball = nil
+        
+        #if DEBUG
+        print("⚡ Speedy accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        guard let body = ball.physicsBody else { return }
+        
+        // Apply 2x speed multiplier to current velocity every frame
+        // This ensures the ball is always moving at double speed
+        let currentSpeed = hypot(body.velocity.dx, body.velocity.dy)
+        
+        // Only apply boost if ball is moving (avoid boosting from rest)
+        if currentSpeed > 5.0 {
+            // The speed lines should be more visible when moving faster
+            updateSpeedLinesVisibility(speed: currentSpeed)
+        } else {
+            // Hide speed lines when not moving
+            speedLinesContainer?.alpha = 0
+        }
+    }
+    
+    /// Create speed lines visual effect
+    private func createSpeedLines(on ball: BlockBall) {
+        let container = SKNode()
+        container.name = "speedLines"
+        container.zPosition = -0.5  // Behind the ball but in front of healing/gravity fields
+        
+        // Create 4 speed lines at cardinal directions
+        let lineLength: CGFloat = 15
+        let lineWidth: CGFloat = 2
+        let lineColor = SKColor(red: 1.0, green: 0.8, blue: 0.0, alpha: 0.8)  // Yellow/orange
+        
+        for i in 0..<4 {
+            let angle = CGFloat(i) * (.pi / 2)  // 0°, 90°, 180°, 270°
+            let distance: CGFloat = 18  // Distance from ball center
+            
+            let line = SKSpriteNode(color: lineColor, size: CGSize(width: lineWidth, height: lineLength))
+            line.position = CGPoint(
+                x: cos(angle) * distance,
+                y: sin(angle) * distance
+            )
+            line.zRotation = angle + .pi / 2  // Rotate to point outward
+            line.alpha = 0
+            
+            container.addChild(line)
+        }
+        
+        // Pulsing animation
+        let fadeIn = SKAction.fadeAlpha(to: 0.8, duration: 0.3)
+        let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 0.3)
+        let pulse = SKAction.sequence([fadeIn, fadeOut])
+        let repeatPulse = SKAction.repeatForever(pulse)
+        
+        for child in container.children {
+            child.run(repeatPulse)
+        }
+        
+        ball.addChild(container)
+        speedLinesContainer = container
+    }
+    
+    /// Update speed lines visibility based on current speed
+    private func updateSpeedLinesVisibility(speed: CGFloat) {
+        guard let container = speedLinesContainer else { return }
+        
+        // Speed lines fade in as ball moves faster
+        let minSpeed: CGFloat = 10
+        let maxSpeed: CGFloat = 300
+        let speedRatio = min(max((speed - minSpeed) / (maxSpeed - minSpeed), 0), 1)
+        
+        container.alpha = speedRatio * 0.8
+    }
+    
+    /// Apply velocity boost when ball receives an impulse
+    /// This is called by the collision system to amplify impulses
+    func amplifyImpulse(_ impulse: CGVector) -> CGVector {
+        return CGVector(dx: impulse.dx * speedMultiplier, dy: impulse.dy * speedMultiplier)
+    }
+}
+
+/// Healing accessory - heals nearby cue balls when the ball is at rest
+/// Used by 6-balls to provide healing support
+final class HealingAccessory: BallAccessoryProtocol {
+    let id = "healing"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    
+    // Healing state
+    private var hasMovedOnce = false
+    private var isHealingActive = false
+    private var timeSinceLastHeal: TimeInterval = 0.0
+    private var totalHPHealed: CGFloat = 0.0
+    private var healingFieldNode: SKShapeNode?
+    
+    // Configuration
+    static var healingRadius: CGFloat = 150.0 // Configurable via settings
+    private let healingAmount: CGFloat = 10.0
+    private let healingInterval: TimeInterval = 1.0
+    private let maxHealingTotal: CGFloat = 30.0
+    private let restLinearSpeedThreshold: CGFloat = 5.0
+    private let restAngularSpeedThreshold: CGFloat = 0.5
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        #if DEBUG
+        print("💚 Healing accessory attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        healingFieldNode?.removeFromParent()
+        healingFieldNode = nil
+        self.ball = nil
+        
+        #if DEBUG
+        print("💚 Healing accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        guard let body = ball.physicsBody else { return }
+        
+        let linearSpeed = hypot(body.velocity.dx, body.velocity.dy)
+        let angularSpeed = abs(body.angularVelocity)
+        
+        // Track if ball has moved for the first time
+        if !hasMovedOnce && linearSpeed > 1.0 {
+            hasMovedOnce = true
+            #if DEBUG
+            print("💚 6-ball has moved for the first time - healing will activate when it comes to rest")
+            #endif
+        }
+        
+        // Only activate healing after ball has moved at least once
+        guard hasMovedOnce else { return }
+        
+        // Check if ball is at rest
+        let isAtRest = (linearSpeed < restLinearSpeedThreshold && angularSpeed < restAngularSpeedThreshold)
+        
+        if isAtRest {
+            if !isHealingActive {
+                isHealingActive = true
+                showHealingField(on: ball)
+                #if DEBUG
+                print("💚 6-ball healing ACTIVATED (ball at rest)")
+                #endif
+            }
+        } else {
+            if isHealingActive {
+                isHealingActive = false
+                hideHealingField()
+                timeSinceLastHeal = 0.0
+                #if DEBUG
+                print("💚 6-ball healing DEACTIVATED (ball moving)")
+                #endif
+            }
+        }
+        
+        // Apply healing if active
+        if isHealingActive {
+            applyHealingEffect(from: ball, deltaTime: deltaTime)
+        }
+    }
+    
+    /// Show the healing field visual indicator
+    private func showHealingField(on ball: BlockBall) {
+        // Remove existing field if any
+        healingFieldNode?.removeFromParent()
+        
+        // Create a pulsing circle to indicate healing field
+        let field = SKShapeNode(circleOfRadius: HealingAccessory.healingRadius)
+        field.strokeColor = SKColor(red: 0.0, green: 0.9, blue: 0.3, alpha: 0.3)
+        field.lineWidth = 2.0
+        field.fillColor = SKColor(red: 0.0, green: 0.7, blue: 0.3, alpha: 0.05)
+        field.zPosition = -1
+        field.name = "healingField"
+        
+        // Add pulsing animation
+        let scaleUp = SKAction.scale(to: 1.1, duration: 1.0)
+        let scaleDown = SKAction.scale(to: 0.9, duration: 1.0)
+        let pulse = SKAction.sequence([scaleUp, scaleDown])
+        let repeatPulse = SKAction.repeatForever(pulse)
+        field.run(repeatPulse)
+        
+        // Fade in
+        field.alpha = 0
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
+        field.run(fadeIn)
+        
+        ball.addChild(field)
+        healingFieldNode = field
+    }
+    
+    /// Hide the healing field visual indicator
+    private func hideHealingField() {
+        guard let field = healingFieldNode else { return }
+        
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        field.run(SKAction.sequence([fadeOut, remove]))
+        healingFieldNode = nil
+    }
+    
+    /// Apply healing effect to nearby cue balls
+    private func applyHealingEffect(from ball: BlockBall, deltaTime: TimeInterval) {
+        guard let scene = ball.scene ?? ball.sceneRef else { return }
+        
+        // Increment timer
+        timeSinceLastHeal += deltaTime
+        
+        // Only heal once per interval
+        guard timeSinceLastHeal >= healingInterval else { return }
+        
+        // Reset timer
+        timeSinceLastHeal = 0.0
+        
+        // Find all cue balls in the scene
+        let allBalls = scene.children.compactMap { $0 as? BlockBall }
+        let cueBalls = allBalls.filter { $0.ballKind == .cue }
+        
+        for cueBall in cueBalls {
+            // Calculate distance to cue ball
+            let dx = ball.position.x - cueBall.position.x
+            let dy = ball.position.y - cueBall.position.y
+            let distance = hypot(dx, dy)
+            
+            // Check if within healing radius
+            if distance < HealingAccessory.healingRadius {
+                // Get damage system from scene
+                if let starScene = scene as? StarfieldScene,
+                   let damageSystem = starScene.damageSystem {
+                    // Heal the cue ball
+                    damageSystem.heal(cueBall, amount: healingAmount)
+                    
+                    // Create healing visual effect
+                    createHealingEffect(at: cueBall.position, in: scene)
+                    
+                    // Track total healing
+                    totalHPHealed += healingAmount
+                    
+                    #if DEBUG
+                    print("💚 6-ball healed cue ball for \(Int(healingAmount)) HP (total: \(Int(totalHPHealed))/\(Int(maxHealingTotal)))")
+                    #endif
+                }
+            }
+        }
+        
+        // Check if we've reached the healing limit
+        if totalHPHealed >= maxHealingTotal {
+            #if DEBUG
+            print("💥 6-ball has healed \(Int(totalHPHealed)) HP total - breaking!")
+            #endif
+            
+            // Break this 6-ball using the damage system
+            if let starScene = scene as? StarfieldScene,
+               let damageSystem = starScene.damageSystem {
+                damageSystem.applyDirectDamage(to: ball, amount: 9999)
+            }
+        }
+    }
+    
+    /// Create a visual healing effect at the specified position
+    private func createHealingEffect(at position: CGPoint, in scene: SKScene) {
+        let plusSize: CGFloat = 20
+        
+        // Create vertical bar of the plus
+        let vertical = SKSpriteNode(color: SKColor(red: 0.0, green: 1.0, blue: 0.3, alpha: 1.0),
+                                   size: CGSize(width: 4, height: plusSize))
+        vertical.position = position
+        vertical.zPosition = 1001
+        vertical.alpha = 0
+        
+        // Create horizontal bar of the plus
+        let horizontal = SKSpriteNode(color: SKColor(red: 0.0, green: 1.0, blue: 0.3, alpha: 1.0),
+                                     size: CGSize(width: plusSize, height: 4))
+        horizontal.position = position
+        horizontal.zPosition = 1001
+        horizontal.alpha = 0
+        
+        scene.addChild(vertical)
+        scene.addChild(horizontal)
+        
+        // Healing animation: fade in, float up, fade out
+        let fadeIn = SKAction.fadeIn(withDuration: 0.15)
+        let moveUp = SKAction.moveBy(x: 0, y: 30, duration: 0.8)
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        
+        let floatAndFade = SKAction.group([moveUp, SKAction.sequence([
+            SKAction.wait(forDuration: 0.5),
+            fadeOut
+        ])])
+        let sequence = SKAction.sequence([fadeIn, floatAndFade, remove])
+        
+        vertical.run(sequence)
+        horizontal.run(sequence)
+    }
+}
+
 /// Pulse accessory - charges for 1 second then releases a damaging pulse when hit
 /// Used by 4-balls to create area-of-effect damage
+/// Configuration is read from BallDamageSystem.config at runtime
 final class PulseAccessory: BallAccessoryProtocol {
     let id = "pulse"
     let visualNode = SKNode()
@@ -1419,11 +1752,6 @@ final class PulseAccessory: BallAccessoryProtocol {
     private weak var ball: BlockBall?
     private var isCharging = false
     private var chargingNode: SKNode?
-    
-    // Configuration
-    static var pulseRadius: CGFloat = 90.0  // 18 blocks * 5 points per block (configurable)
-    static var pulseDelay: TimeInterval = 1.0  // Delay before pulse fires
-    static var maxTriggers: Int = 2  // How many times can this ball pulse before breaking
     
     private var triggerCount: Int = 0
     
@@ -1461,26 +1789,30 @@ final class PulseAccessory: BallAccessoryProtocol {
             return
         }
         
+        // Read configuration from damage system
+        let pulseDelay = damageSystem.config.pulseDamageDelay
+        let maxTriggers = damageSystem.config.pulseDamageMaxTriggers
+        
         #if DEBUG
-        print("💜 Pulse triggered! Charging for \(PulseAccessory.pulseDelay)s...")
+        print("💜 Pulse triggered! Charging for \(pulseDelay)s...")
         #endif
         
         // Increment trigger count
         triggerCount += 1
         
-        let shouldDestroyAfter = (triggerCount >= PulseAccessory.maxTriggers)
+        let shouldDestroyAfter = (triggerCount >= maxTriggers)
         
         #if DEBUG
-        print("💜 Pulse trigger count: \(triggerCount)/\(PulseAccessory.maxTriggers)")
+        print("💜 Pulse trigger count: \(triggerCount)/\(maxTriggers)")
         #endif
         
         isCharging = true
         
         // Start charging animation (blocky ring that follows the ball)
-        startChargingAnimation(ball: ball)
+        startChargingAnimation(ball: ball, pulseDelay: pulseDelay)
         
         // After delay, unleash pulse
-        DispatchQueue.main.asyncAfter(deadline: .now() + PulseAccessory.pulseDelay) { [weak self, weak ball] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + pulseDelay) { [weak self, weak ball] in
             guard let self = self, let ball = ball else { return }
             
             // Get damage system from scene
@@ -1504,7 +1836,7 @@ final class PulseAccessory: BallAccessoryProtocol {
     }
     
     /// Create charging animation around the ball (blocky ring that follows it)
-    private func startChargingAnimation(ball: BlockBall) {
+    private func startChargingAnimation(ball: BlockBall, pulseDelay: TimeInterval) {
         let blockSize: CGFloat = 5.0
         
         // Create a container node that will be a child of the 4-ball (travels with it)
@@ -1546,11 +1878,11 @@ final class PulseAccessory: BallAccessoryProtocol {
             SKAction.fadeAlpha(to: 0.5, duration: 0.3)
         ])
         let pulse = SKAction.sequence([pulseOut, pulseIn])
-        let pulseCount = Int(PulseAccessory.pulseDelay / 0.6)
+        let pulseCount = Int(pulseDelay / 0.6)
         let repeatPulse = SKAction.repeat(pulse, count: pulseCount)
         
         // Color shift during charge
-        let colorShiftDuration = PulseAccessory.pulseDelay / 4
+        let colorShiftDuration = pulseDelay / 4
         let colorToPink = SKAction.run {
             blocks.forEach { $0.color = SKColor.systemPink }
         }
@@ -1594,13 +1926,15 @@ final class PulseAccessory: BallAccessoryProtocol {
     private func unleashPulse(from ball: BlockBall, damageSystem: BallDamageSystem) {
         guard let scene = ball.scene else { return }
         
-        #if DEBUG
-        print("💜💜💜 PULSE UNLEASHED from \(ball.ballKind) ball!")
-        #endif
-        
+        // Read configuration from damage system
+        let radiusInBlocks = damageSystem.config.pulseDamageRadius
         let blockSize: CGFloat = 5.0
-        let radius = PulseAccessory.pulseRadius
+        let radius = radiusInBlocks * blockSize  // Convert blocks to points
         let center = ball.position
+        
+        #if DEBUG
+        print("💜💜💜 PULSE UNLEASHED from \(ball.ballKind) ball! Radius: \(radiusInBlocks) blocks (\(radius) pts)")
+        #endif
         
         // Visual: colorful changing translucent circle that expands to radius
         let ring = SKShapeNode(circleOfRadius: 8)
@@ -1897,7 +2231,7 @@ final class SpawnerAccessory: BallAccessoryProtocol {
     }
 }
 
-/// Heavy accessory - increases ball mass by 10x, making it much harder to move
+/// Heavy accessory - increases ball mass by a configurable multiplier, making it much harder to move
 /// Used by 3-balls to create a heavyweight ball that resists movement
 final class HeavyAccessory: BallAccessoryProtocol {
     let id = "heavy"
@@ -1905,8 +2239,28 @@ final class HeavyAccessory: BallAccessoryProtocol {
     var preventsSinking: Bool { return false }
     
     private weak var ball: BlockBall?
-    private let massMultiplier: CGFloat = 10.0  // 10x heavier than normal
+    private var massMultiplier: CGFloat  // Configurable mass multiplier
     private var originalMass: CGFloat = 0.17  // Default normal mass
+    
+    /// Initialize with a specific mass multiplier (default 10x)
+    init(massMultiplier: CGFloat = 10.0) {
+        self.massMultiplier = massMultiplier
+    }
+    
+    /// Update the mass multiplier and reapply to the ball
+    func updateMassMultiplier(_ newMultiplier: CGFloat) {
+        self.massMultiplier = newMultiplier
+        
+        // Reapply the new mass if attached to a ball
+        if let body = ball?.physicsBody {
+            body.mass = originalMass * massMultiplier
+            
+            #if DEBUG
+            print("💪 Heavy accessory mass multiplier updated to \(String(format: "%.1f", massMultiplier))×")
+            print("   New mass: \(String(format: "%.2f", body.mass))")
+            #endif
+        }
+    }
     
     func onAttach(to ball: BlockBall) {
         self.ball = ball
@@ -1919,6 +2273,7 @@ final class HeavyAccessory: BallAccessoryProtocol {
             #if DEBUG
             print("💪 Heavy accessory attached to \(ball.ballKind) ball")
             print("   Mass changed: \(String(format: "%.2f", originalMass)) -> \(String(format: "%.2f", body.mass))")
+            print("   Multiplier: \(String(format: "%.1f", massMultiplier))×")
             #endif
         }
     }
@@ -1953,7 +2308,7 @@ final class GravityAccessory: BallAccessoryProtocol {
     // Gravity state
     private var hasMovedOnce = false  // Track if ball has moved yet
     private var isGravityActive = false  // Track if gravity is currently active
-    private let gravityRadius: CGFloat = 150.0  // 30 blocks * 5 points per block
+    static var gravityRadius: CGFloat = 150.0  // Configurable via settings
     private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
     private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
     private let restAngularSpeedThreshold: CGFloat = 0.5  // Angular speed threshold for rest
@@ -2024,7 +2379,7 @@ final class GravityAccessory: BallAccessoryProtocol {
         gravityFieldNode?.removeFromParent()
         
         // Create a pulsing circle to indicate gravity field
-        let field = SKShapeNode(circleOfRadius: gravityRadius)
+        let field = SKShapeNode(circleOfRadius: GravityAccessory.gravityRadius)
         field.strokeColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.3)
         field.lineWidth = 2.0
         field.fillColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.05)
@@ -2074,13 +2429,13 @@ final class GravityAccessory: BallAccessoryProtocol {
             let distance = hypot(dx, dy)
             
             // Check if within gravity radius
-            if distance > 0 && distance < gravityRadius {
+            if distance > 0 && distance < GravityAccessory.gravityRadius {
                 // Calculate force direction (normalized)
                 let forceX = dx / distance
                 let forceY = dy / distance
                 
                 // Apply force that falls off with distance (inverse square law feels too strong, use linear)
-                let distanceRatio = 1.0 - (distance / gravityRadius)  // 1.0 at center, 0.0 at edge
+                let distanceRatio = 1.0 - (distance / GravityAccessory.gravityRadius)  // 1.0 at center, 0.0 at edge
                 let force = gravityStrength * distanceRatio
                 
                 // Apply impulse to the target ball
@@ -2366,6 +2721,9 @@ final class BallAccessoryManager {
     private var accessories: [String: BallAccessoryProtocol] = [:]
     private var ballAccessories: [ObjectIdentifier: [BallAccessoryProtocol]] = [:]
     
+    // Global heavy accessory mass multiplier (configurable via settings)
+    private(set) var heavyMassMultiplier: CGFloat = 10.0
+    
     private init() {
         registerDefaultAccessories()
     }
@@ -2382,6 +2740,8 @@ final class BallAccessoryManager {
         registerAccessory(ZapperAccessory())  // NEW: Lightning zapper
         registerAccessory(SpawnerAccessory())  // NEW: Spawns cue balls
         registerAccessory(PulseAccessory())  // NEW: Damaging pulse
+        registerAccessory(HealingAccessory())  // NEW: Heals nearby cue balls
+        registerAccessory(SpeedyAccessory())  // NEW: 2x speed and power
         
         // Register all hat styles
         registerAccessory(HatAccessory(style: .topHat))
@@ -2417,7 +2777,7 @@ final class BallAccessoryManager {
         case "flying":
             accessory = FlyingAccessory()
         case "heavy":
-            accessory = HeavyAccessory()
+            accessory = HeavyAccessory(massMultiplier: heavyMassMultiplier)
         case "gravity":
             accessory = GravityAccessory()
         case "burning":
@@ -2434,6 +2794,10 @@ final class BallAccessoryManager {
             accessory = SpawnerAccessory()
         case "pulse":
             accessory = PulseAccessory()
+        case "healing":
+            accessory = HealingAccessory()
+        case "speedy":
+            accessory = SpeedyAccessory()
         case "hat_topHat":
             accessory = HatAccessory(style: .topHat)
         case "hat_bowler":
@@ -2618,6 +2982,30 @@ final class BallAccessoryManager {
     /// Check if a ball has the heavy accessory (10x mass)
     func hasHeavy(ball: BlockBall) -> Bool {
         return hasAccessory(ball: ball, id: "heavy")
+    }
+    
+    /// Update the heavy accessory mass multiplier globally
+    /// This updates all existing heavy accessories and sets the default for new ones
+    func setHeavyMassMultiplier(_ multiplier: CGFloat) {
+        self.heavyMassMultiplier = multiplier
+        
+        #if DEBUG
+        print("💪 Heavy mass multiplier set to \(String(format: "%.1f", multiplier))×")
+        #endif
+        
+        // Update all existing heavy accessories
+        for (ballID, accessories) in ballAccessories {
+            for accessory in accessories {
+                if let heavyAccessory = accessory as? HeavyAccessory {
+                    heavyAccessory.updateMassMultiplier(multiplier)
+                }
+            }
+        }
+    }
+    
+    /// Get the current heavy mass multiplier
+    func getHeavyMassMultiplier() -> CGFloat {
+        return heavyMassMultiplier
     }
     
     /// Get the pulse accessory instance for a ball (if it has one)

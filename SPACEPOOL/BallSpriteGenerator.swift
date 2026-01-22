@@ -142,12 +142,14 @@ final class BallSpriteGenerator {
             }
             
             // Helper to check if a block should be part of the stripe using PROPER 3D rotation
+            // The stripe goes ALL THE WAY AROUND the ball's equator (like a belt)
             func isStripeBlock3D(cx: CGFloat, cy: CGFloat) -> Bool {
                 guard let point3D = project2DTo3D(cx: cx, cy: cy) else { return false }
                 
-                // In the ball's local coordinate system, the stripe is at y ≈ 0
-                // Check if this point is within the stripe band
-                let stripeHalfWidth: CGFloat = 0.2  // About 1 block in normalized coords
+                // In the ball's local coordinate system, the stripe wraps around the y=0 plane
+                // This means ANY point where y ≈ 0 is part of the stripe, regardless of x or z
+                // The stripe goes all the way around the circumference of the ball
+                let stripeHalfWidth: CGFloat = 0.25  // Slightly wider for better visibility (about 1.25 blocks)
                 return abs(point3D.y) < stripeHalfWidth
             }
             

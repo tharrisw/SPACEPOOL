@@ -77,20 +77,28 @@ final class BallDamageSystem {
         /// Damage multiplier for eleven balls (default 1.0 = normal, 3.0 = triple damage)
         var elevenBallDamageMultiplier: CGFloat = 1.0
         
-        /// 4-ball pulse damage radius in blocks (default 18.0)
-        var fourBallDamageRadius: CGFloat = 18.0
+        // MARK: Accessory Settings
+        // These settings control accessories that can be attached to any ball
         
-        /// 4-ball pulse delay in seconds before triggering (default 1.0)
-        var fourBallPulseDelay: TimeInterval = 1.0
+        /// Damage pulse radius in blocks (default 18.0)
+        /// Controls the damagePulse accessory radius
+        var pulseDamageRadius: CGFloat = 18.0
         
-        /// Maximum number of times a 4-ball can be triggered before being destroyed (default 2)
-        var fourBallMaxTriggers: Int = 2
+        /// Damage pulse delay in seconds before triggering (default 1.0)
+        /// Controls the damagePulse accessory charge time
+        var pulseDamageDelay: TimeInterval = 1.0
         
-        /// 11-ball explosion radius in blocks (default 10.0)
-        var elevenBallExplosionRadius: CGFloat = 10.0
+        /// Maximum number of times damage pulse can trigger (default 2)
+        /// Controls how many times the damagePulse accessory can activate before ball is destroyed
+        var pulseDamageMaxTriggers: Int = 2
         
-        /// Maximum number of times an 11-ball can explode before being destroyed (default 1 - single use)
-        var elevenBallMaxExplosions: Int = 1
+        /// Explosion radius in blocks (default 10.0)
+        /// Controls the explosion radius for both explodeOnContact and explodeOnDestroy accessories
+        var explosionRadius: CGFloat = 10.0
+        
+        /// Number of explosions before permanent destruction (default 1)
+        /// Determines how many times a ball with explodeOnContact can explode before being permanently destroyed
+        var explosionsBeforeDestruction: Int = 1
     }
     
     // MARK: - Ball Health State
@@ -366,6 +374,30 @@ final class BallDamageSystem {
             lastDamageSource = ball1
             applyDamage(damage2, to: ball2, at: ball2.position)
         }
+        
+        // Apply speedy accessory velocity boost after collision
+        // Check if either ball has speedy accessory and amplify their velocities
+        if BallAccessoryManager.shared.hasAccessory(ball: ball1, id: "speedy"),
+           let body1 = ball1.physicsBody {
+            // Double the velocity for ball1
+            body1.velocity = CGVector(dx: body1.velocity.dx * 2.0, dy: body1.velocity.dy * 2.0)
+            #if DEBUG
+            if debugEnabled {
+                print("⚡ Speedy accessory: Doubled ball1 velocity")
+            }
+            #endif
+        }
+        
+        if BallAccessoryManager.shared.hasAccessory(ball: ball2, id: "speedy"),
+           let body2 = ball2.physicsBody {
+            // Double the velocity for ball2
+            body2.velocity = CGVector(dx: body2.velocity.dx * 2.0, dy: body2.velocity.dy * 2.0)
+            #if DEBUG
+            if debugEnabled {
+                print("⚡ Speedy accessory: Doubled ball2 velocity")
+            }
+            #endif
+        }
     }
     
     // MARK: - Public Damage API
@@ -437,15 +469,15 @@ final class BallDamageSystem {
             
             #if DEBUG
             if debugEnabled {
-                print("   💣 \(ball.ballKind) ball has explodeOnContact accessory - explosion count: \(health.explodeOnContactCount)/\(config.elevenBallMaxExplosions)")
+                print("   💣 \(ball.ballKind) ball has explodeOnContact accessory - explosion count: \(health.explodeOnContactCount)/\(config.explosionsBeforeDestruction)")
             }
             #endif
             
             // Check if we've reached the max explosion limit
-            if health.explodeOnContactCount >= config.elevenBallMaxExplosions {
+            if health.explodeOnContactCount >= config.explosionsBeforeDestruction {
                 #if DEBUG
                 if debugEnabled {
-                    print("   💀 \(ball.ballKind) ball reached max explosions (\(config.elevenBallMaxExplosions)), destroying completely!")
+                    print("   💀 \(ball.ballKind) ball reached max explosions (\(config.explosionsBeforeDestruction)), destroying completely!")
                 }
                 #endif
                 
@@ -493,7 +525,7 @@ final class BallDamageSystem {
             } else {
                 #if DEBUG
                 if debugEnabled {
-                    print("   ♻️ \(ball.ballKind) ball exploding but will regenerate (\(health.explodeOnContactCount)/\(config.elevenBallMaxExplosions))")
+                    print("   ♻️ \(ball.ballKind) ball exploding but will regenerate (\(health.explodeOnContactCount)/\(config.explosionsBeforeDestruction))")
                 }
                 #endif
                 
@@ -1082,7 +1114,7 @@ final class BallDamageSystem {
         #endif
         
         let blockSize: CGFloat = 5.0 // Size of each felt block
-        let explosionRadius: CGFloat = config.elevenBallExplosionRadius * blockSize // Use config value
+        let explosionRadius: CGFloat = config.explosionRadius * blockSize // Use config value
         
         let beforeShockwave = CFAbsoluteTimeGetCurrent()
         
