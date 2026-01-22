@@ -4,4 +4,7 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:SPAWN_VALIDATION_IMPROVEMENTS.md">
+   </FileRef>
 </Workspace>

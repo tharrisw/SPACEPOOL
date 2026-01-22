@@ -70,10 +70,12 @@ extension StarfieldScene {
         self.blockPocketCenters = result.pocketCenters
         self.blockPocketRadius = result.pocketRadius
         self.feltManager = result.feltManager  // CRITICAL: Store strong reference
+        self.tableGrid = result.tableGrid      // NEW: Store unified grid system
         
         // 🔥 CRITICAL FIX: Connect FeltManager to damage system for 11-ball explosions
         damageSystem?.feltManager = result.feltManager
         print("🔗 FeltManager connected to damage system for explosive holes!")
+        print("🎯 TableGrid connected to scene for O(1) spatial queries!")
         
         // Resume physics if it was running
         if wasRunning {

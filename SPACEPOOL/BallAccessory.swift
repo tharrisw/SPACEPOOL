@@ -962,6 +962,41 @@ final class ExplodeOnContactAccessory: BallAccessoryProtocol {
     }
 }
 
+/// Explode On Destroy accessory - causes the ball to explode when it's destroyed (HP reaches 0)
+/// Creates a crater in the felt at the ball's final position
+/// This accessory is completely invisible - no visual indicators
+final class ExplodeOnDestroyAccessory: BallAccessoryProtocol {
+    let id = "explodeOnDestroy"
+    let visualNode = SKNode()  // Empty - no visuals for this accessory
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // No visuals - this is a pure ability accessory
+        // Visual indicator could be added later (glowing outline, etc.)
+        
+        #if DEBUG
+        print("💥 Explode On Destroy accessory attached to \(ball.ballKind) ball (invisible)")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        self.ball = nil
+        
+        #if DEBUG
+        print("💥 Explode On Destroy accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // No update needed - the damage system handles explosion on death
+        // This accessory is purely a marker that triggers behavior in BallDamageSystem
+    }
+}
+
 /// Temporary Burning accessory - spreads on contact and disappears after dealing 20 damage
 /// Created when a ball with burning touches another ball
 final class TempBurningAccessory: BallAccessoryProtocol {
@@ -1246,6 +1281,7 @@ final class BallAccessoryManager {
         registerAccessory(BurningAccessory())
         registerAccessory(TempBurningAccessory())
         registerAccessory(ExplodeOnContactAccessory())
+        registerAccessory(ExplodeOnDestroyAccessory())  // NEW: Explode when destroyed
         
         // Register all hat styles
         registerAccessory(HatAccessory(style: .topHat))

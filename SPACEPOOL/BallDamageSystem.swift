@@ -85,6 +85,9 @@ final class BallDamageSystem {
         
         /// 11-ball explosion radius in blocks (default 10.0)
         var elevenBallExplosionRadius: CGFloat = 10.0
+        
+        /// Maximum number of times an 11-ball can explode before being destroyed (default 1 - single use)
+        var elevenBallMaxExplosions: Int = 1
     }
     
     // MARK: - Ball Health State
@@ -94,6 +97,7 @@ final class BallDamageSystem {
         weak var ball: BlockBall?
         var healthBar: SKNode?
         var fourBallTriggerCount: Int = 0  // Track 4ball triggers
+        var explodeOnContactCount: Int = 0  // Track explodeOnContact accessory explosions
         
         init(ball: BlockBall, maxHP: CGFloat) {
             self.ball = ball
@@ -210,9 +214,12 @@ final class BallDamageSystem {
     
     /// Process a collision between two balls
     func handleCollision(between ball1: BlockBall, and ball2: BlockBall, impulse: CGFloat) {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
         #if DEBUG
         if debugEnabled {
             print("💥 handleCollision called - Impulse: \(String(format: "%.1f", impulse)), Threshold: \(config.minDamageImpulse)")
+            print("   ⏱️ Collision start time: \(startTime)")
         }
         #endif
         
@@ -236,16 +243,45 @@ final class BallDamageSystem {
             #endif
             return
         }
+        
+        let afterCooldownCheck = CFAbsoluteTimeGetCurrent()
+        #if DEBUG
+        if debugEnabled {
+            print("   ⏱️ After cooldown check: +\(String(format: "%.4f", (afterCooldownCheck - startTime) * 1000))ms")
+        }
+        #endif
+        
         setCooldown(collisionKey)
         
-        // Only process if impulse is strong enough
-        guard impulse >= config.minDamageImpulse else {
+        // Check if either ball has explodeOnContact accessory - they should explode on ANY touch
+        let ball1HasExplodeOnContact = BallAccessoryManager.shared.hasAccessory(ball: ball1, id: "explodeOnContact")
+        let ball2HasExplodeOnContact = BallAccessoryManager.shared.hasAccessory(ball: ball2, id: "explodeOnContact")
+        let hasExplodeOnContact = ball1HasExplodeOnContact || ball2HasExplodeOnContact
+        
+        let afterAccessoryCheck = CFAbsoluteTimeGetCurrent()
+        #if DEBUG
+        if debugEnabled {
+            print("   ⏱️ After accessory check: +\(String(format: "%.4f", (afterAccessoryCheck - startTime) * 1000))ms")
+            print("   💣 Has explodeOnContact: \(hasExplodeOnContact) (ball1: \(ball1HasExplodeOnContact), ball2: \(ball2HasExplodeOnContact))")
+        }
+        #endif
+        
+        // Only check impulse threshold if neither ball has explodeOnContact
+        if !hasExplodeOnContact {
+            guard impulse >= config.minDamageImpulse else {
+                #if DEBUG
+                if debugEnabled {
+                    print("   ⚠️ Impulse too weak (\(String(format: "%.1f", impulse)) < \(config.minDamageImpulse)), no damage")
+                }
+                #endif
+                return
+            }
+        } else {
             #if DEBUG
             if debugEnabled {
-                print("   ⚠️ Impulse too weak (\(String(format: "%.1f", impulse)) < \(config.minDamageImpulse)), no damage")
+                print("   💣 Ball has explodeOnContact - bypassing impulse check (impulse: \(String(format: "%.1f", impulse)))")
             }
             #endif
-            return
         }
         
         let kind1 = ball1.ballKind
@@ -400,18 +436,95 @@ final class BallDamageSystem {
             #endif
         }
         
-        // SPECIAL: If this is an 11-ball with explodeOnContact accessory, ANY damage triggers instant explosion
-        if ball.ballKind == .eleven && BallAccessoryManager.shared.hasAccessory(ball: ball, id: "explodeOnContact") {
+        // SPECIAL: If this ball has explodeOnContact accessory, ANY damage triggers instant explosion
+        if BallAccessoryManager.shared.hasAccessory(ball: ball, id: "explodeOnContact") {
+            let explosionStartTime = CFAbsoluteTimeGetCurrent()
             #if DEBUG
             if debugEnabled {
-                print("   💣 11-ball has explodeOnContact accessory - triggering instant explosion!")
+                print("   💣💣💣 EXPLODE ON CONTACT TRIGGERED!")
+                print("   ⏱️ Explosion start time: \(explosionStartTime)")
             }
             #endif
             
-            // Set HP to 0 to trigger explosion
-            health.currentHP = 0
-            handleBallDestruction(ball, health: health)
-            return  // Skip normal damage processing
+            // Check if this ball has exploded too many times
+            health.explodeOnContactCount += 1
+            
+            #if DEBUG
+            if debugEnabled {
+                print("   💣 \(ball.ballKind) ball has explodeOnContact accessory - explosion count: \(health.explodeOnContactCount)/\(config.elevenBallMaxExplosions)")
+            }
+            #endif
+            
+            // Check if we've reached the max explosion limit
+            if health.explodeOnContactCount >= config.elevenBallMaxExplosions {
+                #if DEBUG
+                if debugEnabled {
+                    print("   💀 \(ball.ballKind) ball reached max explosions (\(config.elevenBallMaxExplosions)), destroying completely!")
+                }
+                #endif
+                
+                let beforePhysicsStop = CFAbsoluteTimeGetCurrent()
+                
+                // INSTANT EXPLOSION - Skip all visual conversion, just explode
+                ball.physicsBody?.velocity = .zero
+                ball.physicsBody?.angularVelocity = 0
+                ball.physicsBody?.isDynamic = false
+                
+                let afterPhysicsStop = CFAbsoluteTimeGetCurrent()
+                #if DEBUG
+                if debugEnabled {
+                    print("   ⏱️ Physics stop: +\(String(format: "%.4f", (afterPhysicsStop - beforePhysicsStop) * 1000))ms")
+                }
+                #endif
+                
+                // Skip convertToBlocks() - just create explosion immediately
+                createMassiveExplosion(at: ball.position, ball: ball)
+                
+                let afterExplosion = CFAbsoluteTimeGetCurrent()
+                #if DEBUG
+                if debugEnabled {
+                    print("   ⏱️ After createMassiveExplosion: +\(String(format: "%.4f", (afterExplosion - afterPhysicsStop) * 1000))ms")
+                    print("   ⏱️ Total explosion time: +\(String(format: "%.4f", (afterExplosion - explosionStartTime) * 1000))ms")
+                }
+                #endif
+                
+                // Mark as dead and notify delegate
+                health.currentHP = 0
+                delegate?.ballDamageSystem(self, didDestroyBall: ball)
+                
+                // Remove from scene immediately (hide it)
+                ball.alpha = 0
+                ball.removeFromParent()
+                
+                #if DEBUG
+                if debugEnabled {
+                    let finalTime = CFAbsoluteTimeGetCurrent()
+                    print("   ⏱️ TOTAL TIME FROM EXPLOSION START: +\(String(format: "%.4f", (finalTime - explosionStartTime) * 1000))ms")
+                }
+                #endif
+                
+                return  // Skip normal damage processing
+            } else {
+                #if DEBUG
+                if debugEnabled {
+                    print("   ♻️ \(ball.ballKind) ball exploding but will regenerate (\(health.explodeOnContactCount)/\(config.elevenBallMaxExplosions))")
+                }
+                #endif
+                
+                // INSTANT EXPLOSION - Skip all visual conversion, just explode
+                ball.physicsBody?.velocity = .zero
+                ball.physicsBody?.angularVelocity = 0
+                ball.physicsBody?.isDynamic = false
+                
+                // Skip convertToBlocks() - just create explosion immediately
+                createMassiveExplosion(at: ball.position, ball: ball)
+                
+                // Remove from scene immediately (hide it)
+                ball.alpha = 0
+                ball.removeFromParent()
+                
+                return  // Skip normal damage processing
+            }
         }
         
         health.currentHP = max(0, health.currentHP - actualDamage)
@@ -489,8 +602,9 @@ final class BallDamageSystem {
         // Check if this is a cue ball before destruction
         let isCueBall = ball.ballKind == .cue
         
-        // Check if this is an eleven ball for special explosion
-        let isElevenBall = ball.ballKind == .eleven
+        // Check if this ball has explode accessories
+        let hasExplodeOnContact = BallAccessoryManager.shared.hasAccessory(ball: ball, id: "explodeOnContact")
+        let hasExplodeOnDestroy = BallAccessoryManager.shared.hasAccessory(ball: ball, id: "explodeOnDestroy")
         
         // Stop all ball movement immediately
         ball.physicsBody?.velocity = .zero
@@ -500,12 +614,23 @@ final class BallDamageSystem {
         // Notify delegate about the destruction
         delegate?.ballDamageSystem(self, didDestroyBall: ball)
         
-        // If eleven ball, create massive explosion and destroy nearby blocks
-        if isElevenBall {
+        // If ball has explode on contact accessory, create massive explosion and destroy nearby blocks
+        if hasExplodeOnContact {
             // Convert to blocks before explosion
             ball.convertToBlocks()
             createMassiveExplosion(at: ball.position, ball: ball)
-        } else {
+        }
+        // NEW: If ball has explode on destroy accessory, create explosion at death
+        else if hasExplodeOnDestroy {
+            #if DEBUG
+            print("💥 Ball has explodeOnDestroy - creating explosion at death position!")
+            #endif
+            
+            // Convert to blocks before explosion
+            ball.convertToBlocks()
+            createMassiveExplosion(at: ball.position, ball: ball)
+        }
+        else {
             // Create destruction effect based on config for normal balls
             switch config.destructionEffect {
             case .explode:
@@ -975,22 +1100,46 @@ final class BallDamageSystem {
     
     /// Massive explosion effect for eleven ball - creates shockwave that destroys blocks in radius
     private func createMassiveExplosion(at position: CGPoint, ball: BlockBall) {
+        let explosionMethodStart = CFAbsoluteTimeGetCurrent()
+        
         guard let scene = scene else { return }
         
         #if DEBUG
         if debugEnabled {
-            print("💥💥💥 MASSIVE EXPLOSION from eleven ball at \(position)")
+            print("💥💥💥 MASSIVE EXPLOSION from \(ball.ballKind) ball at \(position)")
+            print("   ⏱️ createMassiveExplosion start: \(explosionMethodStart)")
         }
         #endif
         
         let blockSize: CGFloat = 5.0 // Size of each felt block
         let explosionRadius: CGFloat = config.elevenBallExplosionRadius * blockSize // Use config value
         
-        // Create shockwave visual effect
+        let beforeShockwave = CFAbsoluteTimeGetCurrent()
+        
+        // Create shockwave visual effect FIRST - most visible/important
         createShockwave(at: position, radius: explosionRadius)
         
-        // DESTROY FELT BLOCKS - Create ragged hole in the playing surface
-        destroyFeltBlocks(at: position, radius: explosionRadius, blockSize: blockSize, in: scene)
+        let afterShockwave = CFAbsoluteTimeGetCurrent()
+        #if DEBUG
+        if debugEnabled {
+            print("   ⏱️ Shockwave created: +\(String(format: "%.4f", (afterShockwave - beforeShockwave) * 1000))ms")
+        }
+        #endif
+        
+        // Defer felt block destruction to next frame to avoid blocking
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // DESTROY FELT BLOCKS - Create ragged hole in the playing surface
+            self.destroyFeltBlocks(at: position, radius: explosionRadius, blockSize: blockSize, in: scene)
+        }
+        
+        #if DEBUG
+        if debugEnabled {
+            let afterDeferFelt = CFAbsoluteTimeGetCurrent()
+            print("   ⏱️ Felt destruction deferred: +\(String(format: "%.4f", (afterDeferFelt - afterShockwave) * 1000))ms")
+            print("   ⏱️ TOTAL createMassiveExplosion: +\(String(format: "%.4f", (afterDeferFelt - explosionMethodStart) * 1000))ms")
+        }
+        #endif
         
         // Get all registered balls and damage their blocks if within radius
         for (_, health) in ballHealthMap {
@@ -1010,15 +1159,15 @@ final class BallDamageSystem {
                 }
                 #endif
                 
-                // SPECIAL CASE: Eleven balls instantly chain-explode!
-                if targetBall.ballKind == .eleven {
+                // SPECIAL CASE: Balls with explode on contact accessory instantly chain-explode!
+                if BallAccessoryManager.shared.hasAccessory(ball: targetBall, id: "explodeOnContact") {
                     #if DEBUG
                     if debugEnabled {
-                        print("   💥💥 CHAIN REACTION! Eleven ball instantly destroyed!")
+                        print("   💥💥 CHAIN REACTION! \(targetBall.ballKind) ball with explodeOnContact instantly destroyed!")
                     }
                     #endif
                     
-                    // Instantly destroy the eleven ball (set HP to 0)
+                    // Instantly destroy the ball (set HP to 0)
                     health.currentHP = 0
                     handleBallDestruction(targetBall, health: health)
                     continue  // Skip to next ball
@@ -1071,177 +1220,25 @@ final class BallDamageSystem {
     private func destroyFeltBlocks(at position: CGPoint, radius: CGFloat, blockSize: CGFloat, in scene: SKScene) {
         #if DEBUG
         if debugEnabled {
-            print("🕳️ Destroying felt blocks at \(position) with radius \(radius)")
+            print("🕳️ Grid-only explosion at \(position) with radius \(radius)")
             print("   FeltManager available: \(feltManager != nil)")
         }
         #endif
         
-        // Try using FeltManager if available; otherwise, fall back to scanning scene for felt blocks
-        let activeFeltManager = self.feltManager
-        var feltBlocksInRadius: [SKSpriteNode] = []
-        
-        if let fm = activeFeltManager {
-            // Ensure block mode around the explosion
-            print("🔄 Calling switchToBlockMode...")
-            fm.switchToBlockMode(aroundPosition: position, radius: radius)
-            print("🔍 Getting blocks in explosion radius...")
-            feltBlocksInRadius = fm.getBlocksInExplosionRadius(position: position, radius: radius, scene: scene)
-            print("   ✅ Found \(feltBlocksInRadius.count) blocks from FeltManager")
+        // Use FeltManager's grid-only explosion (NO BLOCK MODE SWITCHING!)
+        guard let fm = feltManager else {
+            print("⚠️ No FeltManager - skipping explosion")
+            return
         }
         
-        // Fallback: if no manager or manager returned none, scan the scene for blocks named with the felt prefix
-        if feltBlocksInRadius.isEmpty {
-            print("⚠️ FeltManager returned no blocks, falling back to scene scan")
-            var collected: [SKSpriteNode] = []
-            func collect(from node: SKNode) {
-                for child in node.children {
-                    if let sprite = child as? SKSpriteNode, let name = sprite.name, name.hasPrefix("FeltBlock_") {
-                        // Filter by distance to explosion center
-                        let dx = sprite.position.x - position.x
-                        let dy = sprite.position.y - position.y
-                        if hypot(dx, dy) <= radius { collected.append(sprite) }
-                    }
-                    if !child.children.isEmpty { collect(from: child) }
-                }
-            }
-            collect(from: scene)
-            feltBlocksInRadius = collected
-            print("   Fallback found \(feltBlocksInRadius.count) blocks")
-        }
+        // Grid-only explosion: instant, no scene graph changes, just texture rebake
+        let destroyedCount = fm.createExplosion(at: position, radius: radius, scene: scene)
         
         #if DEBUG
         if debugEnabled {
-            print("   🕳️ Total blocks to process: \(feltBlocksInRadius.count)")
+            print("✅ Grid-only explosion complete: \(destroyedCount) cells destroyed")
         }
         #endif
-        
-        // Create ragged edge effect with block-precise control:
-        // - Target hole: 8 blocks diameter => radius = 4 blocks
-        // - Inner radius: last 3 blocks of the radius are ragged => inner = radius - 3 blocks
-        let radiusBlocks = Int(round(radius / blockSize))
-        let outerRadius = CGFloat(radiusBlocks) * blockSize
-        let innerRadiusBlocks = max(0, radiusBlocks - 3)
-        let innerRadius = CGFloat(innerRadiusBlocks) * blockSize
-        
-        print("💥 Destruction phase: radius=\(radius), outerRadius=\(outerRadius), innerRadius=\(innerRadius)")
-        print("   radiusBlocks=\(radiusBlocks), innerRadiusBlocks=\(innerRadiusBlocks)")
-        print("   Blocks in radius to evaluate: \(feltBlocksInRadius.count)")
-        
-        var destroyedCount = 0
-        var skippedCount = 0
-        
-        for block in feltBlocksInRadius {
-            let dx = block.position.x - position.x
-            let dy = block.position.y - position.y
-            let distance = hypot(dx, dy)
-            
-            var shouldDestroy = false
-            var reason = ""
-            if distance <= innerRadius {
-                // Inner core: always destroy
-                shouldDestroy = true
-                reason = "inner core (dist: \(Int(distance)))"
-            } else if distance <= outerRadius && outerRadius > innerRadius {
-                // Outer ragged ring: probabilistic destruction for ragged effect
-                let edgeRatio = (distance - innerRadius) / (outerRadius - innerRadius)
-                let baseChance: CGFloat = 1.0 - edgeRatio  // higher chance closer to inner edge
-                let randomFactor = CGFloat.random(in: 0.7...1.3)
-                let finalChance = min(max(baseChance * randomFactor, 0), 1)
-                let roll = CGFloat.random(in: 0...1)
-                shouldDestroy = roll < finalChance
-                reason = "ragged ring (dist: \(Int(distance)), chance: \(String(format: "%.2f", finalChance)), roll: \(String(format: "%.2f", roll)), \(shouldDestroy ? "YES" : "NO"))"
-            } else {
-                reason = "outside range (dist: \(Int(distance)))"
-            }
-            
-            if shouldDestroy {
-                // Visual explosion and actual removal
-                explodeFeltBlock(block, explosionCenter: position, inScene: scene)
-                if let fm = activeFeltManager {
-                    fm.removeBlock(block)
-                } else {
-                    // No manager: remove from scene directly
-                    block.removeFromParent()
-                }
-                destroyedCount += 1
-            } else {
-                skippedCount += 1
-            }
-        }
-        
-        print("💥 Destroyed \(destroyedCount) felt blocks, skipped \(skippedCount) out of \(feltBlocksInRadius.count) in radius")
-        
-        // IMMEDIATE: Rebake texture with hole right away so it appears instantly
-        // The exploding block animations will play on top of the hole
-        if let fm = activeFeltManager {
-            fm.switchBackToTextureMode()
-            print("✅ Immediately rebaked texture with explosion hole")
-        }
-    }
-    
-    /// Explode a single felt block outward from explosion - creates debris particles
-    private func explodeFeltBlock(_ block: SKSpriteNode, explosionCenter: CGPoint, inScene scene: SKScene) {
-        // Calculate explosion direction (radial from explosion center)
-        let dx = block.position.x - explosionCenter.x
-        let dy = block.position.y - explosionCenter.y
-        let distance = hypot(dx, dy)
-        
-        // Normalize direction
-        let dirX = (distance > 0) ? (dx / distance) : CGFloat.random(in: -1...1)
-        let dirY = (distance > 0) ? (dy / distance) : CGFloat.random(in: -1...1)
-        
-        // Create 2-3 block-sized debris particles per felt block
-        let debrisCount = Int.random(in: 2...3)
-        let blockSize: CGFloat = 5.0
-        
-        for _ in 0..<debrisCount {
-            // Each debris is full block size (5×5 pixels)
-            let debris = SKSpriteNode(color: block.color, size: CGSize(width: blockSize, height: blockSize))
-            
-            // Start at block position with slight random offset
-            let offsetX = CGFloat.random(in: -2...2)
-            let offsetY = CGFloat.random(in: -2...2)
-            debris.position = CGPoint(x: block.position.x + offsetX, y: block.position.y + offsetY)
-            debris.zPosition = 2500  // Above everything
-            debris.texture?.filteringMode = .nearest
-            
-            scene.addChild(debris)
-            
-            // Explosion speed with variation
-            let baseSpeed: CGFloat = CGFloat.random(in: 150...250)
-            let speedVariation = CGFloat.random(in: 0.8...1.2)
-            let speed = baseSpeed * speedVariation
-            
-            // Add some randomness to direction (spray effect)
-            let angleVariation = CGFloat.random(in: -0.4...0.4)
-            let finalDirX = dirX * cos(angleVariation) - dirY * sin(angleVariation)
-            let finalDirY = dirX * sin(angleVariation) + dirY * cos(angleVariation)
-            
-            let vx = finalDirX * speed
-            let vy = finalDirY * speed
-            
-            let duration: TimeInterval = TimeInterval.random(in: 0.5...0.8)
-            
-            // Rotation
-            let randomRotation = CGFloat.random(in: -(.pi * 3)...(.pi * 3))
-            let rotate = SKAction.rotate(byAngle: randomRotation, duration: duration)
-            
-            // Movement with slight downward arc (gravity effect)
-            let moveAction = SKAction.moveBy(x: vx * CGFloat(duration), 
-                                            y: vy * CGFloat(duration) - 30, // Gravity pull
-                                            duration: duration)
-            let fadeOut = SKAction.fadeOut(withDuration: duration * 0.7) // Start fading 70% through
-            fadeOut.timingMode = .easeIn
-            
-            // NO SCALE DOWN - keep blocks full size!
-            let group = SKAction.group([moveAction, fadeOut, rotate])
-            let remove = SKAction.removeFromParent()
-            
-            debris.run(SKAction.sequence([group, remove]))
-        }
-        
-        // Immediately remove original felt block from scene (creates the hole!)
-        block.removeFromParent()
     }
     
     /// Create expanding shockwave visual

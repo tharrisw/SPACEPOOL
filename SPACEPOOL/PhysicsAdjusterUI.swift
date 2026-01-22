@@ -55,6 +55,7 @@ class PhysicsAdjusterUI {
         static let fourBallDamageRadius = "spacepool.fourBallDamageRadius"
         static let fourBallMaxTriggers = "spacepool.fourBallMaxTriggers"
         static let elevenBallExplosionRadius = "spacepool.elevenBallExplosionRadius"
+        static let elevenBallMaxExplosions = "spacepool.elevenBallMaxExplosions"
     }
     
     // Scrolling support
@@ -136,6 +137,12 @@ class PhysicsAdjusterUI {
         if defaults.object(forKey: SettingsKey.elevenBallExplosionRadius) != nil {
             let value = CGFloat(defaults.double(forKey: SettingsKey.elevenBallExplosionRadius))
             scene.damageSystem?.config.elevenBallExplosionRadius = value
+        }
+        
+        // 11-Ball Max Explosions (default 1 if not set)
+        let savedMaxExplosions = UserDefaults.standard.integer(forKey: SettingsKey.elevenBallMaxExplosions)
+        if savedMaxExplosions > 0 {
+            scene.damageSystem?.config.elevenBallMaxExplosions = savedMaxExplosions
         }
         
         // Apply ball physics settings to all existing balls
@@ -254,7 +261,8 @@ class PhysicsAdjusterUI {
             SettingsKey.damageNumbersEnabled,
             SettingsKey.fourBallDamageRadius,
             SettingsKey.fourBallMaxTriggers,
-            SettingsKey.elevenBallExplosionRadius
+            SettingsKey.elevenBallExplosionRadius,
+            SettingsKey.elevenBallMaxExplosions
         ]
         
         for key in keys {
@@ -437,6 +445,15 @@ class PhysicsAdjusterUI {
                let handle = contentNode.childNode(withName: "//elevenBallExplosionRadiusHandle") as? SKShapeNode {
                 if handle.contains(locInContent) || track.contains(locInContent) {
                     update11BallExplosionRadiusSlider(touchLocation: locInContent, track: track, handle: handle)
+                    touchingSlider = true
+                }
+            }
+            
+            // 11-Ball Max Explosions slider detection
+            if let track = contentNode.childNode(withName: "//elevenBallMaxExplosionsTrack") as? SKShapeNode,
+               let handle = contentNode.childNode(withName: "//elevenBallMaxExplosionsHandle") as? SKShapeNode {
+                if handle.contains(locInContent) || track.contains(locInContent) {
+                    update11BallMaxExplosionsSlider(at: locInContent)
                     touchingSlider = true
                 }
             }
@@ -728,6 +745,15 @@ class PhysicsAdjusterUI {
                let handle = contentNode.childNode(withName: "//elevenBallExplosionRadiusHandle") as? SKShapeNode {
                 if handle.contains(locInContent) || track.contains(locInContent) {
                     update11BallExplosionRadiusSlider(touchLocation: locInContent, track: track, handle: handle)
+                    return true
+                }
+            }
+            
+            // 11-Ball Max Explosions slider drag detection
+            if let track = contentNode.childNode(withName: "//elevenBallMaxExplosionsTrack") as? SKShapeNode,
+               let handle = contentNode.childNode(withName: "//elevenBallMaxExplosionsHandle") as? SKShapeNode {
+                if handle.contains(locInContent) || track.contains(locInContent) {
+                    update11BallMaxExplosionsSlider(at: locInContent)
                     return true
                 }
             }
@@ -1231,6 +1257,7 @@ class PhysicsAdjusterUI {
         place({ parent, width, y in self.add4BallDamageRadiusSliderToNode(parent, width: width, yCursor: y) }, gameplayX, &yGameplay, "4ballRadius")
         place({ parent, width, y in self.add4BallMaxTriggersSliderToNode(parent, width: width, yCursor: y) }, gameplayX, &yGameplay, "4ballTriggers")
         place({ parent, width, y in self.add11BallExplosionRadiusSliderToNode(parent, width: width, yCursor: y) }, gameplayX, &yGameplay, "11ballExplosion")
+        place({ parent, width, y in self.add11BallMaxExplosionsSliderToNode(parent, width: width, yCursor: y) }, gameplayX, &yGameplay, "11ballMaxExplosions")
         
         // PHYSICS COLUMN (Right)
         place({ parent, width, y in self.addFrictionSliderToNode(parent, width: width, yCursor: y) }, physicsX, &yPhysics, "friction")
@@ -1541,7 +1568,7 @@ class PhysicsAdjusterUI {
         guard let scene = scene as? StarfieldScene else { return yCursor }
         var y = yCursor
         let label = SKLabelNode(fontNamed: "Courier")
-        label.text = "11-Ball Explosion Radius"
+        label.text = "Explosion Radius"
         label.fontSize = 14
         label.fontColor = .white
         label.horizontalAlignmentMode = .left
@@ -1576,6 +1603,57 @@ class PhysicsAdjusterUI {
         let xOffset = -trackWidth/2 + t * trackWidth
         handle.position = CGPoint(x: xOffset, y: y)
         parent.addChild(handle)
+        return y - 15
+    }
+    
+    private func add11BallMaxExplosionsSliderToNode(_ parent: SKNode, width: CGFloat, yCursor: CGFloat) -> CGFloat {
+        guard let scene = scene as? StarfieldScene else { return yCursor }
+        var y = yCursor
+        
+        let label = SKLabelNode(fontNamed: "Courier")
+        label.text = "Max Explosions"
+        label.fontSize = 14
+        label.fontColor = .white
+        label.horizontalAlignmentMode = .left
+        label.verticalAlignmentMode = .center
+        label.position = CGPoint(x: -width/2 + 16, y: y)
+        parent.addChild(label)
+        
+        // Get current value (default 1)
+        let current = scene.damageSystem?.config.elevenBallMaxExplosions ?? 1
+        let valueLabel = SKLabelNode(fontNamed: "Courier-Bold")
+        valueLabel.text = "\(current)x"
+        valueLabel.fontSize = 14
+        valueLabel.fontColor = .white
+        valueLabel.horizontalAlignmentMode = .right
+        valueLabel.verticalAlignmentMode = .center
+        valueLabel.position = CGPoint(x: width/2 - 16, y: y)
+        valueLabel.name = "elevenBallMaxExplosionsValue"
+        parent.addChild(valueLabel)
+        
+        y -= 15
+        
+        let trackWidth: CGFloat = width - 32
+        let track = SKShapeNode(rectOf: CGSize(width: trackWidth, height: 4), cornerRadius: 2)
+        track.fillColor = SKColor(white: 1.0, alpha: 0.3)
+        track.strokeColor = .clear
+        track.name = "elevenBallMaxExplosionsTrack"
+        track.position = CGPoint(x: 0, y: y)
+        parent.addChild(track)
+        
+        let handle = SKShapeNode(rectOf: CGSize(width: 20, height: 20), cornerRadius: 4)
+        handle.fillColor = SKColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1.0)  // Red/maroon to match 11-ball
+        handle.strokeColor = SKColor(white: 1.0, alpha: 0.8)
+        handle.name = "elevenBallMaxExplosionsHandle"
+        
+        // Range is 1-5, snap to integers
+        let minVal = 1
+        let maxVal = 5
+        let t = CGFloat(current - minVal) / CGFloat(maxVal - minVal)
+        let xOffset = -trackWidth/2 + t * trackWidth
+        handle.position = CGPoint(x: xOffset, y: y)
+        parent.addChild(handle)
+        
         return y - 15
     }
     
@@ -2098,6 +2176,42 @@ class PhysicsAdjusterUI {
         saveSetting(SettingsKey.elevenBallExplosionRadius, value: Double(newValue))
         handle.position.x = trackX + (-trackWidth/2 + t * trackWidth)
         if let valueLabel = contentNode.childNode(withName: "//elevenBallExplosionRadiusValue") as? SKLabelNode { valueLabel.text = format11BallExplosionRadius(newValue) }
+    }
+    
+    private func update11BallMaxExplosionsSlider(at location: CGPoint) {
+        guard let contentNode = overlayContentNode else { return }
+        guard let track = contentNode.childNode(withName: "//elevenBallMaxExplosionsTrack") as? SKShapeNode,
+              let handle = contentNode.childNode(withName: "//elevenBallMaxExplosionsHandle") as? SKShapeNode,
+              let valueLabel = contentNode.childNode(withName: "//elevenBallMaxExplosionsValue") as? SKLabelNode else { return }
+        
+        let trackWidth = track.frame.width
+        
+        let clampedX = max(-trackWidth/2, min(trackWidth/2, location.x))
+        let t = (clampedX + trackWidth/2) / trackWidth
+        let raw = 1.0 + t * 4.0
+        let snapped = Int(round(raw))
+        
+        update11BallMaxExplosionsSliderUI(trackNode: track, handleNode: handle, valueLabel: valueLabel, value: snapped)
+    }
+    
+    private func update11BallMaxExplosionsSliderUI(trackNode: SKShapeNode, handleNode: SKShapeNode, valueLabel: SKLabelNode, value: Int) {
+        // Snap to 1...5
+        let clamped = max(1, min(5, value))
+        valueLabel.text = "\(clamped)x"
+        
+        // Position handle along track based on value
+        let trackWidth = trackNode.frame.width
+        let trackX = trackNode.position.x
+        let t = CGFloat(clamped - 1) / CGFloat(5 - 1) // 0...1
+        let xOffset = -trackWidth/2 + t * trackWidth
+        handleNode.position.x = trackX + xOffset
+        handleNode.position.y = trackNode.position.y
+        
+        // Apply to config and persist
+        if let scene = scene as? StarfieldScene {
+            scene.damageSystem?.config.elevenBallMaxExplosions = clamped
+            saveSetting(SettingsKey.elevenBallMaxExplosions, value: clamped)
+        }
     }
     
     private func updateFrictionSlider(touchLocation: CGPoint, track: SKShapeNode, handle: SKShapeNode) {

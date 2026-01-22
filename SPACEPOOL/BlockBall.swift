@@ -155,33 +155,113 @@ public final class BlockBall: SKNode {
         // Determine scene and geometry
         let scene = self.scene ?? self.sceneRef
         guard let skScene = scene else { return }
-        var feltRect: CGRect = (skScene is StarfieldScene) ? ((skScene as! StarfieldScene).blockFeltRect ?? skScene.frame) : skScene.frame
-        var pocketCenters: [CGPoint] = (skScene is StarfieldScene) ? (((skScene as! StarfieldScene).blockPocketCenters) ?? []) : []
-        var pocketRadius: CGFloat = (skScene is StarfieldScene) ? (((skScene as! StarfieldScene).blockPocketRadius) ?? 0) : 0
+        let starfieldScene = skScene as? StarfieldScene
+        var feltRect: CGRect = starfieldScene?.blockFeltRect ?? skScene.frame
+        var pocketCenters: [CGPoint] = starfieldScene?.blockPocketCenters ?? []
+        var pocketRadius: CGFloat = starfieldScene?.blockPocketRadius ?? 0
 
-        // Spawn offset increased to reduce immediate re-collision
-        let offset = CGPoint(x: 40, y: 0)  // Increased from 22 to 40
-        let base = self.position
-        func clamped(_ p: CGPoint) -> CGPoint {
-            var x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, p.x))
-            var y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, p.y))
-            for c in pocketCenters {
-                if hypot(x - c.x, y - c.y) <= pocketRadius + 16.0 {
-                    let center = CGPoint(x: feltRect.midX, y: feltRect.midY)
-                    let dir = CGVector(dx: center.x - x, dy: center.y - y)
-                    let len = max(1.0, hypot(dir.dx, dir.dy))
-                    x += dir.dx / len * (pocketRadius + 16.0)
-                    y += dir.dy / len * (pocketRadius + 16.0)
+        // Helper: Check if spawn position is valid (not in hole, not on another ball)
+        func isValidSpawn(_ p: CGPoint) -> Bool {
+            // Check grid for holes if available
+            if let feltManager = starfieldScene?.feltManager {
+                if feltManager.isHole(at: p) {
+                    return false  // Can't spawn in hole
+                }
+                if !feltManager.isFelt(at: p) {
+                    return false  // Can't spawn on non-felt
                 }
             }
-            return CGPoint(x: x, y: y)
+            
+            // Check distance from existing balls
+            if let starScene = starfieldScene {
+                let existingBalls = starScene.children.compactMap { $0 as? BlockBall }
+                for ball in existingBalls {
+                    let distance = hypot(p.x - ball.position.x, p.y - ball.position.y)
+                    if distance < 30 {  // Minimum clearance
+                        return false
+                    }
+                }
+            }
+            
+            return true
         }
-        let spawnPos = clamped(CGPoint(x: base.x + offset.x, y: base.y + offset.y))
+
+        // Try to find valid spawn position with intelligent fallback
+        var spawnPos: CGPoint?
+        
+        // Attempt 1: Try position to the right of 2-ball
+        let offset = CGPoint(x: 40, y: 0)
+        let base = self.position
+        var candidate = CGPoint(x: base.x + offset.x, y: base.y + offset.y)
+        
+        // Clamp to felt bounds and avoid pockets
+        candidate.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, candidate.x))
+        candidate.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, candidate.y))
+        
+        // Push away from pockets if too close
+        for c in pocketCenters {
+            if hypot(candidate.x - c.x, candidate.y - c.y) <= pocketRadius + 16.0 {
+                let center = CGPoint(x: feltRect.midX, y: feltRect.midY)
+                let dir = CGVector(dx: center.x - candidate.x, dy: center.y - candidate.y)
+                let len = max(1.0, hypot(dir.dx, dir.dy))
+                candidate.x += dir.dx / len * (pocketRadius + 16.0)
+                candidate.y += dir.dy / len * (pocketRadius + 16.0)
+            }
+        }
+        
+        if isValidSpawn(candidate) {
+            spawnPos = candidate
+        } else {
+            // Attempt 2: Try other directions around the 2-ball
+            let directions: [CGPoint] = [
+                CGPoint(x: -40, y: 0),   // Left
+                CGPoint(x: 0, y: 40),    // Up
+                CGPoint(x: 0, y: -40),   // Down
+                CGPoint(x: 30, y: 30),   // Diagonal up-right
+                CGPoint(x: -30, y: 30),  // Diagonal up-left
+                CGPoint(x: 30, y: -30),  // Diagonal down-right
+                CGPoint(x: -30, y: -30)  // Diagonal down-left
+            ]
+            
+            for direction in directions {
+                var testPos = CGPoint(x: base.x + direction.x, y: base.y + direction.y)
+                testPos.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, testPos.x))
+                testPos.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, testPos.y))
+                
+                if isValidSpawn(testPos) {
+                    spawnPos = testPos
+                    break
+                }
+            }
+            
+            // Attempt 3: Use random spawn system as last resort
+            if spawnPos == nil {
+                #if DEBUG
+                print("⚠️ 2-ball split: Directional spawns failed, trying random spawn...")
+                #endif
+                spawnPos = starfieldScene?.randomSpawnPoint(minClearance: 20)
+            }
+            
+            // Attempt 4: Absolute last resort - spawn at original candidate even if not ideal
+            if spawnPos == nil {
+                #if DEBUG
+                print("⚠️ 2-ball split: All spawn attempts failed, using original position!")
+                #endif
+                spawnPos = candidate
+            }
+        }
+        
+        guard let finalSpawnPos = spawnPos else {
+            #if DEBUG
+            print("❌ 2-ball split: Failed to find ANY spawn position!")
+            #endif
+            return
+        }
 
         let newCue = BlockBall(
             kind: .cue,
             shape: .circle,
-            position: spawnPos,
+            position: finalSpawnPos,
             in: skScene,
             feltRect: feltRect,
             pocketCenters: pocketCenters,
@@ -189,7 +269,7 @@ public final class BlockBall: SKNode {
         )
         system?.registerBall(newCue)
         // Ensure global aiming includes this new cue ball
-        if let starScene = skScene as? StarfieldScene {
+        if let starScene = starfieldScene {
             starScene.addCueBall(newCue)
         }
         newCue.canShoot = true
@@ -208,12 +288,12 @@ public final class BlockBall: SKNode {
         
         // Apply impulse away from 2-ball to the new cue (increased strength)
         if let body = newCue.physicsBody {
-            let dir = CGVector(dx: spawnPos.x - base.x, dy: spawnPos.y - base.y)
+            let dir = CGVector(dx: finalSpawnPos.x - base.x, dy: finalSpawnPos.y - base.y)
             let len = max(1.0, hypot(dir.dx, dir.dy))
             body.applyImpulse(CGVector(dx: dir.dx / len * 25, dy: dir.dy / len * 25))  // Increased from 10 to 25
         }
         #if DEBUG
-        print("🟦 onDamage spawned duplicate cue ball at \(spawnPos)")
+        print("🟦 onDamage spawned duplicate cue ball at \(finalSpawnPos)")
         #endif
     }
 
@@ -1315,14 +1395,21 @@ public final class BlockBall: SKNode {
     }
 
     private func isFeltBlock(at point: CGPoint, in scene: SKScene) -> Bool {
-        // OPTIMIZATION: Fast geometric check first - if outside felt rect, definitely not felt
+        // OPTIMIZATION: Use TableGrid for O(1) lookup instead of expensive geometric checks
+        if let starfieldScene = scene as? StarfieldScene,
+           let feltManager = starfieldScene.feltManager {
+            // Grid-based O(1) check - much faster than geometric calculations!
+            return feltManager.isFelt(at: point)
+        }
+        
+        // Fallback: old geometric checks (if grid not available)
         if let feltRect = cachedFeltRect {
             if !feltRect.contains(point) {
-                return false  // Outside felt bounds = not felt (probably over pocket)
+                return false  // Outside felt bounds = not felt
             }
         }
         
-        // Fast path: check if we're DEFINITELY in a pocket (within pocket radius)
+        // Check if in a pocket with distance formula (expensive!)
         for pocketCenter in pocketCenters {
             let distanceToPocket = hypot(point.x - pocketCenter.x, point.y - pocketCenter.y)
             if distanceToPocket <= pocketRadius {
@@ -1330,45 +1417,21 @@ public final class BlockBall: SKNode {
             }
         }
         
-        // CRITICAL: Check FeltManager's grid to detect explosion holes in texture mode
-        if let starfieldScene = scene as? StarfieldScene,
-           let feltManager = starfieldScene.feltManager,
-           let feltRect = cachedFeltRect {
-            // Convert world position to grid coordinates
-            let blockSize: CGFloat = 5.0
-            let col = Int((point.x - feltRect.minX) / blockSize)
-            let row = Int((point.y - feltRect.minY) / blockSize)
-            
-            // Check if this grid position has been destroyed
-            if feltManager.isGridPositionDestroyed(row: row, col: col) {
-                return false  // This felt block was destroyed by an explosion
-            }
-        }
-        
-        // Check for individual blocks (hybrid mode - during explosions)
-        let nodes = scene.nodes(at: point)
-        let hasIndividualBlock = nodes.contains { node in
-            node is SKSpriteNode && node.zPosition == 22 && node.name?.hasPrefix("FeltBlock_") == true
-        }
-        
-        if hasIndividualBlock {
-            // We're in hybrid mode (explosion happening) - individual block = felt exists
-            return true
-        }
-        
-        // Check for texture sprite at zPosition 21 (normal mode)
-        let hasTexture = nodes.contains { node in
-            node is SKSpriteNode && node.zPosition == 21
-        }
-        
-        // If texture exists and we're not in a destroyed grid cell, felt is present
-        return hasTexture
+        return true  // Within felt bounds and not over pocket
     }
     
     /// Public method to check if the ball is currently over a pocket
     /// Used by accessories to determine when to show special effects
     func isOverPocket() -> Bool {
-        // Check if ball center is near any pocket
+        guard let scene = samplingScene ?? sceneRef ?? self.scene else { return false }
+        
+        // OPTIMIZATION: Use grid-based check if available
+        if let starfieldScene = scene as? StarfieldScene,
+           let feltManager = starfieldScene.feltManager {
+            return feltManager.isHole(at: position)
+        }
+        
+        // Fallback: geometric check
         for pocketCenter in pocketCenters {
             let distanceToPocket = hypot(position.x - pocketCenter.x, position.y - pocketCenter.y)
             if distanceToPocket <= pocketRadius + ballRadius {
@@ -1376,9 +1439,7 @@ public final class BlockBall: SKNode {
             }
         }
         
-        // Also check if unsupported fraction is high enough to indicate pocket
-        let unsupported = unsupportedFractionUnderBall()
-        return unsupported >= minUnsupportedAtZeroSpeed
+        return false
     }
 
     private func maybeTriggerSink(linearSpeed: CGFloat, deltaTime: TimeInterval) {

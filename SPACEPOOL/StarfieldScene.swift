@@ -125,6 +125,7 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     var blockPocketRadius: CGFloat?
     var blockCueBalls: [BlockBall] = []  // Changed: now supports multiple cue balls
     var feltManager: FeltManager?  // Strong reference to FeltManager for explosion holes
+    var tableGrid: TableGrid?  // Unified grid system for O(1) spatial queries
     
     // Level progression
     private var obstacleNodes: [SKNode] = []
@@ -1866,7 +1867,37 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     }
     func spawnBlockCueBallAtCenter() {
         guard let feltRect = blockFeltRect else { return }
-        let spawnPoint = CGPoint(x: feltRect.midX, y: feltRect.midY)
+        
+        // Try to spawn at center first
+        var spawnPoint = CGPoint(x: feltRect.midX, y: feltRect.midY)
+        
+        // Check if center is valid (not in a hole or on another ball)
+        if !isValidSpawnPoint(spawnPoint, minClearance: 20) {
+            #if DEBUG
+            print("⚠️ Center spawn point invalid (hole or ball present), searching for alternative...")
+            #endif
+            
+            // Try to find a nearby valid spawn point
+            if let alternativeSpawn = randomSpawnPoint(minClearance: 20) {
+                spawnPoint = alternativeSpawn
+                #if DEBUG
+                print("✅ Found alternative spawn point at \(spawnPoint)")
+                #endif
+            } else {
+                // Last resort: try spawning with minimal clearance
+                if let lastResort = randomSpawnPoint(minClearance: 5) {
+                    spawnPoint = lastResort
+                    #if DEBUG
+                    print("⚠️ Using minimal clearance spawn at \(spawnPoint)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("❌ Could not find ANY valid spawn point! Spawning at center anyway...")
+                    #endif
+                    // Keep the center point as last resort
+                }
+            }
+        }
         
         let ball = BlockBall(kind: .cue,
                              position: spawnPoint,
@@ -1883,8 +1914,38 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     
     private func respawnBlockCueBallAtCenter() {
         guard let feltRect = self.blockFeltRect else { return }
-        // Spawn a new cue ball at center
-        let spawnPoint = CGPoint(x: feltRect.midX, y: feltRect.midY)
+        
+        // Try to spawn at center first
+        var spawnPoint = CGPoint(x: feltRect.midX, y: feltRect.midY)
+        
+        // Check if center is valid (not in a hole or on another ball)
+        if !isValidSpawnPoint(spawnPoint, minClearance: 20) {
+            #if DEBUG
+            print("⚠️ Center spawn point invalid for respawn, searching for alternative...")
+            #endif
+            
+            // Try to find a nearby valid spawn point
+            if let alternativeSpawn = randomSpawnPoint(minClearance: 20) {
+                spawnPoint = alternativeSpawn
+                #if DEBUG
+                print("✅ Found alternative respawn point at \(spawnPoint)")
+                #endif
+            } else {
+                // Last resort: try spawning with minimal clearance
+                if let lastResort = randomSpawnPoint(minClearance: 5) {
+                    spawnPoint = lastResort
+                    #if DEBUG
+                    print("⚠️ Using minimal clearance respawn at \(spawnPoint)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("❌ Could not find ANY valid respawn point! Spawning at center anyway...")
+                    #endif
+                    // Keep the center point as last resort
+                }
+            }
+        }
+        
         let newBall = BlockBall(kind: .cue,
                                 position: spawnPoint,
                                 in: self,
@@ -1914,41 +1975,87 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Apply current physics settings
         applyPhysicsToAllBalls()
         
-        print("✅ Cue ball respawned with smooth animation (total cue balls: \(blockCueBalls.count))")
+        print("✅ Cue ball respawned with smooth animation at \(spawnPoint) (total cue balls: \(blockCueBalls.count))")
     }
     
     private func isValidSpawnPoint(_ p: CGPoint, minClearance: CGFloat) -> Bool {
-        // Must be inside felt
+        // Must be inside felt bounds
         guard let felt = blockFeltRect else { return false }
         if !felt.insetBy(dx: minClearance, dy: minClearance).contains(p) { return false }
-        // Require a felt block under this point (felt blocks have zPosition 21)
-        let feltHere = nodes(at: p).contains { node in
-            if let s = node as? SKSpriteNode { return s.zPosition == 21 }
-            return false
+        
+        // ✅ GRID-BASED HOLE CHECK: Use TableGrid for O(1) hole detection
+        if let feltManager = feltManager {
+            // Check if spawn point is over a hole (pocket or destroyed felt)
+            if feltManager.isHole(at: p) {
+                return false  // Can't spawn in a hole!
+            }
+            
+            // IMPORTANT: Also check if spawn point is on valid felt
+            // (not destroyed, not pocket, not rail, not empty)
+            if !feltManager.isFelt(at: p) {
+                return false  // Can't spawn on non-felt areas
+            }
+        } else {
+            // Fallback: Old pocket check if grid not available (legacy support)
+            if let centers = blockPocketCenters, let r = blockPocketRadius {
+                for c in centers { 
+                    if hypot(p.x - c.x, p.y - c.y) <= (r + minClearance) { 
+                        return false 
+                    } 
+                }
+            }
         }
-        if !feltHere { return false }
-        // Not inside any pocket
+        
+        // Check clearance from pockets (even if not directly over one)
         if let centers = blockPocketCenters, let r = blockPocketRadius {
-            for c in centers { if hypot(p.x - c.x, p.y - c.y) <= (r + minClearance) { return false } }
+            for c in centers { 
+                let distanceToPocket = hypot(p.x - c.x, p.y - c.y)
+                if distanceToPocket <= (r + minClearance) { 
+                    return false  // Too close to pocket edge
+                } 
+            }
         }
+        
         // Not overlapping existing BlockBall nodes
         let existing = children.compactMap { $0 as? BlockBall }
         for b in existing {
             let d = hypot(p.x - b.position.x, p.y - b.position.y)
-            if d < (b.frame.width/2 + minClearance) { return false }
+            if d < (b.frame.width/2 + minClearance) { 
+                return false  // Too close to another ball
+            }
         }
-        return true
+        
+        return true  // Valid spawn point!
     }
 
     func randomSpawnPoint(minClearance: CGFloat) -> CGPoint? {
         guard let felt = blockFeltRect else { return nil }
-        let maxAttempts = 200
-        for _ in 0..<maxAttempts {
+        let maxAttempts = 500  // Increased from 200 to handle heavily damaged tables
+        
+        for attempt in 0..<maxAttempts {
             let x = CGFloat.random(in: felt.minX...felt.maxX)
             let y = CGFloat.random(in: felt.minY...felt.maxY)
             let p = CGPoint(x: x, y: y)
-            if isValidSpawnPoint(p, minClearance: minClearance) { return p }
+            
+            if isValidSpawnPoint(p, minClearance: minClearance) { 
+                #if DEBUG
+                if attempt > 100 {
+                    print("⚠️ Took \(attempt) attempts to find valid spawn point (table may be heavily damaged or crowded)")
+                }
+                #endif
+                return p 
+            }
         }
+        
+        // If we couldn't find a valid spawn after max attempts, log a warning
+        #if DEBUG
+        print("❌ Failed to find valid spawn point after \(maxAttempts) attempts!")
+        print("   This could mean:")
+        print("   - Table is too crowded with balls")
+        print("   - Most of the felt has been destroyed")
+        print("   - minClearance (\(minClearance)) is too large")
+        #endif
+        
         return nil
     }
     

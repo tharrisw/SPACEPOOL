@@ -7,14 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		4EC41EC22F21A7DC004362B3 /* FIXES_APPLIED.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */; };
-		4EEE4F4F2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */; };
+		4E180DC52F21D67F0094BFD0 /* TableGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E180DC42F21D67F0094BFD0 /* TableGrid.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		4E180DC42F21D67F0094BFD0 /* TableGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableGrid.swift; sourceTree = "<group>"; };
+		4E180DC62F21D7630094BFD0 /* GRID_OPTIMIZATION_SUMMARY.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = GRID_OPTIMIZATION_SUMMARY.md; sourceTree = "<group>"; };
+		4E180DC82F21D77C0094BFD0 /* TableGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableGridTests.swift; sourceTree = "<group>"; };
+		4E180DCA2F21D7A60094BFD0 /* ARCHITECTURE_COMPARISON.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ARCHITECTURE_COMPARISON.md; sourceTree = "<group>"; };
+		4E180DCC2F21D7D60094BFD0 /* MIGRATION_GUIDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = MIGRATION_GUIDE.md; sourceTree = "<group>"; };
+		4E180DCE2F21D8190094BFD0 /* GRID_VISUAL_REFERENCE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = GRID_VISUAL_REFERENCE.md; sourceTree = "<group>"; };
+		4E180DD02F21D8860094BFD0 /* COMPILATION_ERRORS_FIXED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = COMPILATION_ERRORS_FIXED.md; sourceTree = "<group>"; };
+		4E180DD22F21D8AE0094BFD0 /* INTEGRATION_CHECKLIST.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = INTEGRATION_CHECKLIST.md; sourceTree = "<group>"; };
+		4E180DD42F21D9420094BFD0 /* BUILD_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_FIX.md; sourceTree = "<group>"; };
+		4E180DD62F21D9580094BFD0 /* QUICK_REFERENCE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = QUICK_REFERENCE.md; sourceTree = "<group>"; };
 		4EC41D862F215DF4004362B3 /* SPACEPOOL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SPACEPOOL.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FIXES_APPLIED.md; sourceTree = "<group>"; };
-		4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = POCKET_SINKING_DEBUG.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -41,8 +48,16 @@
 			children = (
 				4EC41D882F215DF4004362B3 /* SPACEPOOL */,
 				4EC41D872F215DF4004362B3 /* Products */,
-				4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */,
-				4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */,
+				4E180DC42F21D67F0094BFD0 /* TableGrid.swift */,
+				4E180DC62F21D7630094BFD0 /* GRID_OPTIMIZATION_SUMMARY.md */,
+				4E180DC82F21D77C0094BFD0 /* TableGridTests.swift */,
+				4E180DCA2F21D7A60094BFD0 /* ARCHITECTURE_COMPARISON.md */,
+				4E180DCC2F21D7D60094BFD0 /* MIGRATION_GUIDE.md */,
+				4E180DCE2F21D8190094BFD0 /* GRID_VISUAL_REFERENCE.md */,
+				4E180DD02F21D8860094BFD0 /* COMPILATION_ERRORS_FIXED.md */,
+				4E180DD22F21D8AE0094BFD0 /* INTEGRATION_CHECKLIST.md */,
+				4E180DD42F21D9420094BFD0 /* BUILD_FIX.md */,
+				4E180DD62F21D9580094BFD0 /* QUICK_REFERENCE.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -121,8 +136,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4EEE4F4F2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md in Resources */,
-				4EC41EC22F21A7DC004362B3 /* FIXES_APPLIED.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +146,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E180DC52F21D67F0094BFD0 /* TableGrid.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
