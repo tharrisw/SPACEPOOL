@@ -162,31 +162,33 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         let kindString: String
         switch ball.ballKind {
         case .cue: kindString = "CUE"
-        case .eleven: kindString = "ELEVEN"
-        case .eight: kindString = "EIGHT"
+        case .one: kindString = "ONE"
         case .two: kindString = "TWO"
         case .three: kindString = "THREE"
         case .four: kindString = "FOUR"
         case .five: kindString = "FIVE"
         case .six: kindString = "SIX"
+        case .eight: kindString = "EIGHT"
+        case .eleven: kindString = "ELEVEN"
         }
         print("🎱 blockBallDidSink called for \(kindString) ball")
         print("📊 Score before: \(gameStateManager.currentScore)")
         
         // Adjust score based on ball kind
         switch ball.ballKind {
-        case .eight, .eleven, .two, .three, .four, .five, .six:
+        case .one, .two, .three, .four, .five, .six, .eight, .eleven:
             gameStateManager.addScore(1)
             
             let ballName: String
             switch ball.ballKind {
-            case .eight: ballName = "Eight"
-            case .eleven: ballName = "Eleven"
+            case .one: ballName = "One"
             case .two: ballName = "Two"
             case .three: ballName = "Three"
             case .four: ballName = "Four"
             case .five: ballName = "Five"
             case .six: ballName = "Six"
+            case .eight: ballName = "Eight"
+            case .eleven: ballName = "Eleven"
             case .cue: ballName = "Cue" // Won't be reached but needed for exhaustiveness
             }
             
@@ -1934,7 +1936,7 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     }
     
     private func remainingEnemyBallCount() -> Int {
-        return children.compactMap { $0 as? BlockBall }.filter { $0.ballKind == .eight || $0.ballKind == .eleven || $0.ballKind == .two || $0.ballKind == .three || $0.ballKind == .four || $0.ballKind == .five }.count
+        return children.compactMap { $0 as? BlockBall }.filter { $0.ballKind == .one || $0.ballKind == .two || $0.ballKind == .three || $0.ballKind == .four || $0.ballKind == .five || $0.ballKind == .six || $0.ballKind == .eight || $0.ballKind == .eleven }.count
     }
 
     private func handleLevelComplete() {

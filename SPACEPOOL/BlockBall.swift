@@ -32,13 +32,14 @@ public final class BlockBall: SKNode {
 
     public enum Kind {
         case cue
+        case one     // Gravity ball - attracts other balls when stationary (yellow solid)
         case eight
         case eleven
         case two
         case three
         case four
         case five
-        case six    // Gravity ball - attracts other balls when stationary
+        case six    // Healing ball - heals nearby cue balls when stationary (dark green solid)
     }
     
     var ballKind: Kind { kind }
@@ -63,6 +64,7 @@ public final class BlockBall: SKNode {
     var stopAngularThreshold: CGFloat = 0.8
     var stopHoldDuration: TimeInterval = 0.25
     private var lowSpeedTimerForStop: TimeInterval = 0
+    private var hasSnappedToStop: Bool = false  // Prevents repeated snap messages
 
     var baseAngularDamping: CGFloat = 1.8
     var highAngularDamping: CGFloat = 8.0
@@ -80,13 +82,24 @@ public final class BlockBall: SKNode {
     private var isSinking = false  // Track if ball is currently sinking
     private var pocketInfoPrinted = false  // Debug flag for pocket info
     
-    // Gravity ball (6-ball) state
+    // Gravity ball (1-ball) state
     private var hasMovedOnce = false  // Track if gravity ball has moved yet
     private var isGravityActive = false  // Track if gravity is currently active
     private let gravityRadius: CGFloat = 150.0  // 30 blocks * 5 points per block
     private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
     private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
     private var gravityFieldNode: SKShapeNode?  // Visual indicator of gravity field
+    
+    // Healing ball (6-ball) state
+    private var hasHealerMovedOnce = false  // Track if healer ball has moved yet
+    private var isHealingActive = false  // Track if healing is currently active
+    private let healingRadius: CGFloat = 150.0  // Same as gravity radius
+    private let healingAmount: CGFloat = 10.0  // HP healed per tick
+    private let healingInterval: TimeInterval = 1.0  // Heal once per second
+    private let maxHealingTotal: CGFloat = 30.0  // Break after healing 30 HP
+    private var totalHPHealed: CGFloat = 0.0  // Track total HP healed
+    private var timeSinceLastHeal: TimeInterval = 0.0  // Timer for healing interval
+    private var healingFieldNode: SKShapeNode?  // Visual indicator of healing field
     
     // Debug frame counter for periodic physics verification
     #if DEBUG
@@ -214,7 +227,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
+        if kind == .eight || kind == .one || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
             cacheSpotTextures()
         }
 
@@ -263,7 +276,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
+        if kind == .eight || kind == .one || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
             cacheSpotTextures()
         }
 
@@ -306,10 +319,23 @@ public final class BlockBall: SKNode {
         
         let initialTexture: SKTexture
         switch kind {
+        case .cue:
+            return  // Cue ball has no spots/stripes
         case .eight:
             // Solid black ball with white spot
             initialTexture = generator.generateTexture(
                 fillColor: .black,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .one:
+            // Solid yellow ball with white spot (gravity ball)
+            initialTexture = generator.generateTexture(
+                fillColor: .yellow,
                 spotPosition: .centerRight,
                 shape: shape,
                 isStriped: false,
@@ -362,7 +388,7 @@ public final class BlockBall: SKNode {
                 rotationY: 0
             )
         case .six:
-            // Solid dark green ball with white spot (gravity ball)
+            // Solid dark green ball with white spot
             initialTexture = generator.generateTexture(
                 fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
                 spotPosition: .centerRight,
@@ -383,8 +409,6 @@ public final class BlockBall: SKNode {
                 rotationX: 0,
                 rotationY: 0
             )
-        default:
-            return  // Only numbered balls have spots/stripes
         }
         
         // Set initial texture directly on sprite
@@ -409,6 +433,8 @@ public final class BlockBall: SKNode {
         switch kind {
         case .cue:
             fillColor = SKColor(white: 1.0, alpha: 1.0)
+        case .one:
+            fillColor = SKColor.yellow
         case .eight:
             fillColor = .black
         case .eleven:
@@ -461,6 +487,8 @@ public final class BlockBall: SKNode {
         switch kind {
         case .cue:
             fillColor = SKColor(white: 1.0, alpha: 1.0)
+        case .one:
+            fillColor = SKColor.yellow
         case .eight:
             fillColor = .black
         case .eleven:
@@ -555,9 +583,9 @@ public final class BlockBall: SKNode {
                     let cx = CGFloat(col) - half
                     let cy = CGFloat(row) - half
                     if shouldIncludeBlock(cx: cx, cy: cy) {
-                        // For 8-ball, 2-ball, 3-ball, 4-ball, and 6-ball: make one off-center block white
+                        // For 8-ball, 1-ball, 2-ball, 3-ball, 4-ball, and 6-ball: make one off-center block white
                         // Use block at position (1, 0) which is one block right of center
-                        let isSpotBlock = ((kind == .eight || kind == .two || kind == .three || kind == .four || kind == .six) && cx == 1 && cy == 0)
+                        let isSpotBlock = ((kind == .eight || kind == .one || kind == .two || kind == .three || kind == .four || kind == .six) && cx == 1 && cy == 0)
                         let blockColor = isSpotBlock ? SKColor.white : fillColor
                         
                         // Convert to UIKit coordinates (top-left origin)
@@ -1309,10 +1337,34 @@ public final class BlockBall: SKNode {
         // This works for both solid balls (spots) and striped balls (stripes)
         let newTexture: SKTexture
         switch kind {
+        case .cue:
+            return  // Cue ball has no spots/stripes
+        case .one:
+            // Solid yellow ball with white spot (gravity ball)
+            newTexture = generator.generateTexture(
+                fillColor: .yellow,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
         case .eight:
             // Solid black ball with white spot
             newTexture = generator.generateTexture(
                 fillColor: .black,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .one:
+            // Solid yellow ball with white spot (gravity ball)
+            newTexture = generator.generateTexture(
+                fillColor: .yellow,
                 spotPosition: spotPosition,
                 shape: shape,
                 isStriped: false,
@@ -1365,7 +1417,7 @@ public final class BlockBall: SKNode {
                 rotationY: ballRotationY
             )
         case .six:
-            // Solid dark green ball with white spot (gravity ball)
+            // Solid dark green ball with white spot
             newTexture = generator.generateTexture(
                 fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
                 spotPosition: spotPosition,
@@ -1386,8 +1438,6 @@ public final class BlockBall: SKNode {
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )
-        default:
-            return
         }
         
         // Update the sprite texture (always update since we're using real-time rotation)
@@ -1512,23 +1562,23 @@ public final class BlockBall: SKNode {
         let ls = hypot(body.velocity.dx, body.velocity.dy)
         let angSpeed = abs(body.angularVelocity)
         
-        // Track if 6-ball has moved for the first time
-        if kind == .six && !hasMovedOnce && ls > 1.0 {
+        // Track if 1-ball has moved for the first time
+        if kind == .one && !hasMovedOnce && ls > 1.0 {
             hasMovedOnce = true
             #if DEBUG
-            print("🌍 6-ball has moved for the first time - gravity will activate when it comes to rest")
+            print("🌍 1-ball has moved for the first time - gravity will activate when it comes to rest")
             #endif
         }
         
-        // Update gravity state for 6-ball
-        if kind == .six && hasMovedOnce {
+        // Update gravity state for 1-ball
+        if kind == .one && hasMovedOnce {
             // Check if ball is at rest
             if ls < gravityRestThreshold && angSpeed < restAngularSpeedThreshold {
                 if !isGravityActive {
                     isGravityActive = true
                     showGravityField()
                     #if DEBUG
-                    print("🌍 6-ball gravity ACTIVATED (ball at rest)")
+                    print("🌍 1-ball gravity ACTIVATED (ball at rest)")
                     #endif
                 }
             } else {
@@ -1536,19 +1586,55 @@ public final class BlockBall: SKNode {
                     isGravityActive = false
                     hideGravityField()
                     #if DEBUG
-                    print("🌍 6-ball gravity DEACTIVATED (ball moving)")
+                    print("🌍 1-ball gravity DEACTIVATED (ball moving)")
                     #endif
                 }
             }
         }
         
         // Apply gravity effect if active
-        if kind == .six && isGravityActive {
+        if kind == .one && isGravityActive {
             applyGravityEffect()
         }
         
+        // Track if 6-ball has moved for the first time
+        if kind == .six && !hasHealerMovedOnce && ls > 1.0 {
+            hasHealerMovedOnce = true
+            #if DEBUG
+            print("💚 6-ball has moved for the first time - healing will activate when it comes to rest")
+            #endif
+        }
+        
+        // Update healing state for 6-ball
+        if kind == .six && hasHealerMovedOnce {
+            // Check if ball is at rest
+            if ls < gravityRestThreshold && angSpeed < restAngularSpeedThreshold {
+                if !isHealingActive {
+                    isHealingActive = true
+                    showHealingField()
+                    #if DEBUG
+                    print("💚 6-ball healing ACTIVATED (ball at rest)")
+                    #endif
+                }
+            } else {
+                if isHealingActive {
+                    isHealingActive = false
+                    hideHealingField()
+                    timeSinceLastHeal = 0.0  // Reset timer when deactivated
+                    #if DEBUG
+                    print("💚 6-ball healing DEACTIVATED (ball moving)")
+                    #endif
+                }
+            }
+        }
+        
+        // Apply healing effect if active
+        if kind == .six && isHealingActive {
+            applyHealingEffect(deltaTime: deltaTime)
+        }
+        
         // Update rolling animation for numbered balls (solid spots and striped)
-        if kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .six {
+        if kind == .one || kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .six {
             updateRollingAnimation(linearSpeed: ls, deltaTime: deltaTime)
         }
         
@@ -1581,18 +1667,20 @@ public final class BlockBall: SKNode {
         // This helps balls come to a clean stop without drifting endlessly
         if ls < stopSpeedThreshold && angSpeed < stopAngularThreshold {
             lowSpeedTimerForStop += deltaTime
-            if lowSpeedTimerForStop >= stopHoldDuration {
+            if lowSpeedTimerForStop >= stopHoldDuration && !hasSnappedToStop {
                 body.velocity = .zero
                 body.angularVelocity = 0
                 lowSpeedTimerForStop = 0
                 restTimer = 0
-                #if DEBUG
-                print("🛑 Snap-to-stop engaged: velocities zeroed")
-                #endif
+                hasSnappedToStop = true  // Prevent repeated snaps
             }
         } else {
+            // Ball is moving above threshold - reset timers and snap flag
             lowSpeedTimerForStop = 0
             restTimer = 0
+            if ls > stopSpeedThreshold * 2 {  // Only reset snap flag if moving significantly
+                hasSnappedToStop = false
+            }
         }
     }
     
@@ -1637,9 +1725,9 @@ public final class BlockBall: SKNode {
         
         // Create a pulsing circle to indicate gravity field
         let field = SKShapeNode(circleOfRadius: gravityRadius)
-        field.strokeColor = SKColor(red: 0.0, green: 0.8, blue: 0.0, alpha: 0.3)
+        field.strokeColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.3)
         field.lineWidth = 2.0
-        field.fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 0.05)
+        field.fillColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.05)
         field.zPosition = -1  // Behind the ball
         field.name = "gravityField"
         
@@ -1669,7 +1757,7 @@ public final class BlockBall: SKNode {
         gravityFieldNode = nil
     }
     
-    /// Apply gravity effect from this 6-ball to nearby balls
+    /// Apply gravity effect from this 1-ball to nearby balls
     /// Attracts ALL balls (including cue balls) within the gravity radius
     private func applyGravityEffect() {
         guard let scene = self.scene ?? self.sceneRef else { return }
@@ -1707,6 +1795,158 @@ public final class BlockBall: SKNode {
         }
     }
     
+    // MARK: - Healing Effect (6-Ball)
+    
+    /// Show the healing field visual indicator
+    private func showHealingField() {
+        // Remove existing field if any
+        healingFieldNode?.removeFromParent()
+        
+        // Create a pulsing circle to indicate healing field (green for healing)
+        let field = SKShapeNode(circleOfRadius: healingRadius)
+        field.strokeColor = SKColor(red: 0.0, green: 0.9, blue: 0.3, alpha: 0.3)
+        field.lineWidth = 2.0
+        field.fillColor = SKColor(red: 0.0, green: 0.7, blue: 0.3, alpha: 0.05)
+        field.zPosition = -1  // Behind the ball
+        field.name = "healingField"
+        
+        // Add pulsing animation (faster than gravity to indicate active healing)
+        let scaleUp = SKAction.scale(to: 1.1, duration: 1.0)
+        let scaleDown = SKAction.scale(to: 0.9, duration: 1.0)
+        let pulse = SKAction.sequence([scaleUp, scaleDown])
+        let repeatPulse = SKAction.repeatForever(pulse)
+        field.run(repeatPulse)
+        
+        // Fade in
+        field.alpha = 0
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
+        field.run(fadeIn)
+        
+        addChild(field)
+        healingFieldNode = field
+    }
+    
+    /// Hide the healing field visual indicator
+    private func hideHealingField() {
+        guard let field = healingFieldNode else { return }
+        
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        field.run(SKAction.sequence([fadeOut, remove]))
+        healingFieldNode = nil
+    }
+    
+    /// Apply healing effect from this 6-ball to nearby cue balls
+    /// Heals cue balls within the healing radius once per second
+    /// Breaks the 6-ball after healing 30 HP total
+    private func applyHealingEffect(deltaTime: TimeInterval) {
+        guard let scene = self.scene ?? self.sceneRef else { return }
+        
+        // Increment timer
+        timeSinceLastHeal += deltaTime
+        
+        // Only heal once per interval
+        guard timeSinceLastHeal >= healingInterval else { return }
+        
+        // Reset timer
+        timeSinceLastHeal = 0.0
+        
+        // Find all cue balls in the scene
+        let allBalls = scene.children.compactMap { $0 as? BlockBall }
+        let cueBalls = allBalls.filter { $0.ballKind == .cue }
+        
+        // Track if we healed anyone this tick
+        var healedThisTick = false
+        
+        for cueBall in cueBalls {
+            // Calculate distance to cue ball
+            let dx = self.position.x - cueBall.position.x
+            let dy = self.position.y - cueBall.position.y
+            let distance = hypot(dx, dy)
+            
+            // Check if within healing radius
+            if distance < healingRadius {
+                // Get damage system from scene
+                if let starScene = scene as? StarfieldScene,
+                   let damageSystem = starScene.damageSystem {
+                    // Heal the cue ball
+                    damageSystem.heal(cueBall, amount: healingAmount)
+                    
+                    // Create healing visual effect
+                    createHealingEffect(at: cueBall.position)
+                    
+                    // Track total healing
+                    totalHPHealed += healingAmount
+                    healedThisTick = true
+                    
+                    #if DEBUG
+                    print("💚 6-ball healed cue ball for \(Int(healingAmount)) HP (total: \(Int(totalHPHealed))/\(Int(maxHealingTotal)))")
+                    #endif
+                }
+            }
+        }
+        
+        // Check if we've reached the healing limit
+        if totalHPHealed >= maxHealingTotal {
+            #if DEBUG
+            print("💥 6-ball has healed \(Int(totalHPHealed)) HP total - breaking!")
+            #endif
+            
+            // Break this 6-ball using the damage system
+            if let starScene = scene as? StarfieldScene,
+               let damageSystem = starScene.damageSystem {
+                // Deal enough damage to destroy the ball
+                damageSystem.applyDirectDamage(to: self, amount: 9999)
+            }
+        }
+    }
+    
+    /// Create a visual healing effect at the specified position
+    private func createHealingEffect(at position: CGPoint) {
+        guard let scene = sceneRef ?? self.scene else { return }
+        
+        // Create a small green plus sign for the healing effect
+        let plusSize: CGFloat = 20
+        
+        // Create vertical bar of the plus
+        let vertical = SKSpriteNode(color: SKColor(red: 0.0, green: 1.0, blue: 0.3, alpha: 1.0),
+                                   size: CGSize(width: 4, height: plusSize))
+        vertical.position = position
+        vertical.zPosition = self.zPosition + 1
+        vertical.alpha = 0
+        
+        // Create horizontal bar of the plus
+        let horizontal = SKSpriteNode(color: SKColor(red: 0.0, green: 1.0, blue: 0.3, alpha: 1.0),
+                                     size: CGSize(width: plusSize, height: 4))
+        horizontal.position = position
+        horizontal.zPosition = self.zPosition + 1
+        horizontal.alpha = 0
+        
+        scene.addChild(vertical)
+        scene.addChild(horizontal)
+        
+        // Healing animation: fade in, float up, fade out
+        let fadeIn = SKAction.fadeIn(withDuration: 0.15)
+        let moveUp = SKAction.moveBy(x: 0, y: 30, duration: 0.8)
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        
+        let floatAndFade = SKAction.group([moveUp, SKAction.sequence([
+            SKAction.wait(forDuration: 0.5),
+            fadeOut
+        ])])
+        let sequence = SKAction.sequence([fadeIn, floatAndFade, remove])
+        
+        vertical.run(sequence)
+        horizontal.run(sequence)
+        
+        #if DEBUG
+        if debugEnabled {
+            print("💚 Healing effect created at \(position)")
+        }
+        #endif
+    }
+    
     // MARK: - Accessory Management
     
     /// Attach an accessory to this ball
@@ -1733,6 +1973,9 @@ public final class BlockBall: SKNode {
     deinit {
         // Clean up gravity field
         gravityFieldNode?.removeFromParent()
+        
+        // Clean up healing field
+        healingFieldNode?.removeFromParent()
         
         // Clean up accessories when ball is removed
         BallAccessoryManager.shared.cleanupAccessories(for: self)

@@ -271,6 +271,11 @@ final class BallSpriteGenerator {
         return generator.generateAllTextures(fillColor: .black, shape: shape, isStriped: false)
     }
     
+    static func generateFor1Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
+        let generator = BallSpriteGenerator()
+        return generator.generateAllTextures(fillColor: .yellow, shape: shape, isStriped: false)
+    }
+    
     static func generateFor2Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
         let generator = BallSpriteGenerator()
         return generator.generateAllTextures(fillColor: .blue, shape: shape, isStriped: false)
@@ -325,6 +330,8 @@ extension BlockBall {
         switch ballKind {
         case .eight:
             textures = BallSpriteGenerator.generateFor8Ball(shape: shape)
+        case .one:
+            textures = BallSpriteGenerator.generateFor1Ball(shape: shape)
         case .two:
             textures = BallSpriteGenerator.generateFor2Ball(shape: shape)
         case .three:

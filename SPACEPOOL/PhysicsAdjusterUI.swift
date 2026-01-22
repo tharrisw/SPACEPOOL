@@ -868,6 +868,7 @@ class PhysicsAdjusterUI {
         // Ball types to display
         let ballTypes: [(kind: BlockBall.Kind, name: String, color: SKColor, isStriped: Bool, stripeColor: SKColor?)] = [
             (.cue, "Cue", SKColor(white: 1.0, alpha: 1.0), false, nil),
+            (.one, "1-Ball", SKColor(red: 0.9, green: 0.8, blue: 0.2, alpha: 1.0), false, nil),
             (.eight, "8-Ball", .black, false, nil),
             (.eleven, "11-Ball", SKColor(white: 1.0, alpha: 1.0), true, .red),
             (.two, "2-Ball", .blue, false, nil),
@@ -970,6 +971,8 @@ class PhysicsAdjusterUI {
         switch kindString {
         case "cue":
             ballKind = .cue
+        case "one":
+            ballKind = .one
         case "eight":
             ballKind = .eight
         case "eleven":
