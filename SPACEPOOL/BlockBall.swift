@@ -34,8 +34,8 @@ public final class BlockBall: SKNode {
         case cue
         case one     // Gravity ball - attracts other balls when stationary (yellow solid)
         case two     // Spawns duplicate cue ball when hit (blue solid)
-        case three   // Heavy ball - 10x mass (light red solid)
-        case four    // Immovable ball - 100x mass, deals damage on collision (purple solid)
+        case three   // Heavy ball - 10x mass via accessory (red solid)
+        case four    // Pulse ball - charges for 1s then releases damaging pulse when hit (purple solid)
         case five    // Flying ball - levitates over pockets (orange solid)
         case six     // Healing ball - heals nearby cue balls when stationary (dark green solid)
         case seven   // Burning ball - catches fire on first movement, immune to burn damage (dark red solid)
@@ -78,7 +78,7 @@ public final class BlockBall: SKNode {
     var slowSpeedThreshold: CGFloat = 100.0
     
     // State
-    private weak var sceneRef: SKScene?
+    internal weak var sceneRef: SKScene?
     private var kind: Kind
     internal var shape: Shape = .circle
     var isAiming = false
@@ -88,14 +88,6 @@ public final class BlockBall: SKNode {
     private var lastTouchPos: CGPoint = .zero
     private var isSinking = false  // Track if ball is currently sinking
     private var pocketInfoPrinted = false  // Debug flag for pocket info
-    
-    // Gravity ball (1-ball) state
-    private var hasMovedOnce = false  // Track if gravity ball has moved yet
-    private var isGravityActive = false  // Track if gravity is currently active
-    private let gravityRadius: CGFloat = 150.0  // 30 blocks * 5 points per block
-    private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
-    private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
-    private var gravityFieldNode: SKShapeNode?  // Visual indicator of gravity field
     
     // Burning ball (7-ball) state
     private var hasCaughtFire = false  // Track if 7-ball has caught fire yet
@@ -146,155 +138,10 @@ public final class BlockBall: SKNode {
 
     // MARK: - Damage Hook
     /// Called by the damage system after damage is applied but before death handling.
-    /// Override behavior per kind here (e.g., 2-ball spawns duplicate cue balls when hit by a cue ball).
+    /// Override behavior per kind here.
     func onDamage(amount: CGFloat, source: BlockBall?, system: BallDamageSystem?) {
-        // Only special-case the 2-ball when damaged by a cue ball
-        guard kind == .two else { return }
-        guard let source = source, source.ballKind == .cue else { return }
-
-        // Determine scene and geometry
-        let scene = self.scene ?? self.sceneRef
-        guard let skScene = scene else { return }
-        let starfieldScene = skScene as? StarfieldScene
-        var feltRect: CGRect = starfieldScene?.blockFeltRect ?? skScene.frame
-        var pocketCenters: [CGPoint] = starfieldScene?.blockPocketCenters ?? []
-        var pocketRadius: CGFloat = starfieldScene?.blockPocketRadius ?? 0
-
-        // Helper: Check if spawn position is valid (not in hole, not on another ball)
-        func isValidSpawn(_ p: CGPoint) -> Bool {
-            // Check grid for holes if available
-            if let feltManager = starfieldScene?.feltManager {
-                if feltManager.isHole(at: p) {
-                    return false  // Can't spawn in hole
-                }
-                if !feltManager.isFelt(at: p) {
-                    return false  // Can't spawn on non-felt
-                }
-            }
-            
-            // Check distance from existing balls
-            if let starScene = starfieldScene {
-                let existingBalls = starScene.children.compactMap { $0 as? BlockBall }
-                for ball in existingBalls {
-                    let distance = hypot(p.x - ball.position.x, p.y - ball.position.y)
-                    if distance < 30 {  // Minimum clearance
-                        return false
-                    }
-                }
-            }
-            
-            return true
-        }
-
-        // Try to find valid spawn position with intelligent fallback
-        var spawnPos: CGPoint?
-        
-        // Attempt 1: Try position to the right of 2-ball
-        let offset = CGPoint(x: 40, y: 0)
-        let base = self.position
-        var candidate = CGPoint(x: base.x + offset.x, y: base.y + offset.y)
-        
-        // Clamp to felt bounds and avoid pockets
-        candidate.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, candidate.x))
-        candidate.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, candidate.y))
-        
-        // Push away from pockets if too close
-        for c in pocketCenters {
-            if hypot(candidate.x - c.x, candidate.y - c.y) <= pocketRadius + 16.0 {
-                let center = CGPoint(x: feltRect.midX, y: feltRect.midY)
-                let dir = CGVector(dx: center.x - candidate.x, dy: center.y - candidate.y)
-                let len = max(1.0, hypot(dir.dx, dir.dy))
-                candidate.x += dir.dx / len * (pocketRadius + 16.0)
-                candidate.y += dir.dy / len * (pocketRadius + 16.0)
-            }
-        }
-        
-        if isValidSpawn(candidate) {
-            spawnPos = candidate
-        } else {
-            // Attempt 2: Try other directions around the 2-ball
-            let directions: [CGPoint] = [
-                CGPoint(x: -40, y: 0),   // Left
-                CGPoint(x: 0, y: 40),    // Up
-                CGPoint(x: 0, y: -40),   // Down
-                CGPoint(x: 30, y: 30),   // Diagonal up-right
-                CGPoint(x: -30, y: 30),  // Diagonal up-left
-                CGPoint(x: 30, y: -30),  // Diagonal down-right
-                CGPoint(x: -30, y: -30)  // Diagonal down-left
-            ]
-            
-            for direction in directions {
-                var testPos = CGPoint(x: base.x + direction.x, y: base.y + direction.y)
-                testPos.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, testPos.x))
-                testPos.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, testPos.y))
-                
-                if isValidSpawn(testPos) {
-                    spawnPos = testPos
-                    break
-                }
-            }
-            
-            // Attempt 3: Use random spawn system as last resort
-            if spawnPos == nil {
-                #if DEBUG
-                print("⚠️ 2-ball split: Directional spawns failed, trying random spawn...")
-                #endif
-                spawnPos = starfieldScene?.randomSpawnPoint(minClearance: 20)
-            }
-            
-            // Attempt 4: Absolute last resort - spawn at original candidate even if not ideal
-            if spawnPos == nil {
-                #if DEBUG
-                print("⚠️ 2-ball split: All spawn attempts failed, using original position!")
-                #endif
-                spawnPos = candidate
-            }
-        }
-        
-        guard let finalSpawnPos = spawnPos else {
-            #if DEBUG
-            print("❌ 2-ball split: Failed to find ANY spawn position!")
-            #endif
-            return
-        }
-
-        let newCue = BlockBall(
-            kind: .cue,
-            shape: .circle,
-            position: finalSpawnPos,
-            in: skScene,
-            feltRect: feltRect,
-            pocketCenters: pocketCenters,
-            pocketRadius: pocketRadius
-        )
-        system?.registerBall(newCue)
-        // Ensure global aiming includes this new cue ball
-        if let starScene = starfieldScene {
-            starScene.addCueBall(newCue)
-        }
-        newCue.canShoot = true
-        
-        // Set collision immunity between the new cue and this 2-ball temporarily
-        if let damageSystem = system {
-            damageSystem.setTemporaryImmunity(between: newCue, and: self, duration: 0.3)
-        }
-        
-        // Push the source cue ball away from the 2-ball to prevent immediate re-collision
-        if let sourceBody = source.physicsBody {
-            let sourceDir = CGVector(dx: source.position.x - base.x, dy: source.position.y - base.y)
-            let sourceLen = max(1.0, hypot(sourceDir.dx, sourceDir.dy))
-            sourceBody.applyImpulse(CGVector(dx: sourceDir.dx / sourceLen * 25, dy: sourceDir.dy / sourceLen * 25))
-        }
-        
-        // Apply impulse away from 2-ball to the new cue (increased strength)
-        if let body = newCue.physicsBody {
-            let dir = CGVector(dx: finalSpawnPos.x - base.x, dy: finalSpawnPos.y - base.y)
-            let len = max(1.0, hypot(dir.dx, dir.dy))
-            body.applyImpulse(CGVector(dx: dir.dx / len * 25, dy: dir.dy / len * 25))  // Increased from 10 to 25
-        }
-        #if DEBUG
-        print("🟦 onDamage spawned duplicate cue ball at \(finalSpawnPos)")
-        #endif
+        // The 2-ball's spawning ability is now handled by the SpawnerAccessory
+        // No special handling needed here
     }
 
     init(kind: Kind,
@@ -341,16 +188,46 @@ public final class BlockBall: SKNode {
 
         scene.addChild(self)
         
+        // Attach spawner accessory to 2-balls AFTER ball is added to scene
+        // (accessory needs ball.scene to be non-nil)
+        if kind == .two {
+            _ = attachAccessory("spawner")
+        }
+        
         // Attach flying accessory to 5-balls AFTER ball is added to scene
         // (accessory needs ball.scene to be non-nil to create wing sprites)
         if kind == .five {
             _ = attachAccessory("flying")
         }
         
+        // Attach zapper accessory to 9-balls
+        // (unleashes lightning at nearby balls when hit)
+        if kind == .nine {
+            _ = attachAccessory("zapper")
+        }
+        
+        // Attach gravity accessory to 1-balls
+        // (attracts nearby balls when at rest)
+        if kind == .one {
+            _ = attachAccessory("gravity")
+        }
+        
+        // Attach heavy accessory to 3-balls
+        // (10x heavier mass - very hard to move)
+        if kind == .three {
+            _ = attachAccessory("heavy")
+        }
+        
         // Attach explode on destroy accessory to 11-balls
         // (explodes when HP reaches 0, creating a crater)
         if kind == .eleven {
             _ = attachAccessory("explodeOnDestroy")
+        }
+        
+        // Attach pulse accessory to 4-balls
+        // (charges for 1s then releases damaging pulse when hit)
+        if kind == .four {
+            _ = attachAccessory("pulse")
         }
         
         // 7-balls will get burning accessory after first movement (see update method)
@@ -835,16 +712,8 @@ public final class BlockBall: SKNode {
 
         body.affectedByGravity = false
         
-        // Set mass based on ball kind
-        // 3ball is 10 times as heavy as regular balls
-        // 4ball is 100 times as heavy (truly immovable)
-        if kind == .three {
-            body.mass = 1.7  // 10× heavier (0.17 × 10)
-        } else if kind == .four {
-            body.mass = 17.0  // 100× heavier - immovable
-        } else {
-            body.mass = 0.17  // Normal mass
-        }
+        // All balls have normal mass now (4-ball no longer immovable)
+        body.mass = 0.17
         
         body.friction = 0.12
         body.linearDamping = 0.65
@@ -1840,14 +1709,6 @@ public final class BlockBall: SKNode {
         let ls = hypot(body.velocity.dx, body.velocity.dy)
         let angSpeed = abs(body.angularVelocity)
         
-        // Track if 1-ball has moved for the first time
-        if kind == .one && !hasMovedOnce && ls > 1.0 {
-            hasMovedOnce = true
-            #if DEBUG
-            print("🌍 1-ball has moved for the first time - gravity will activate when it comes to rest")
-            #endif
-        }
-        
         // Ignite 7-ball on first movement
         if kind == .seven && !hasCaughtFire && ls > 1.0 {
             hasCaughtFire = true
@@ -1889,33 +1750,6 @@ public final class BlockBall: SKNode {
             }
         }
         
-        // Update gravity state for 1-ball
-        if kind == .one && hasMovedOnce {
-            // Check if ball is at rest
-            if ls < gravityRestThreshold && angSpeed < restAngularSpeedThreshold {
-                if !isGravityActive {
-                    isGravityActive = true
-                    showGravityField()
-                    #if DEBUG
-                    print("🌍 1-ball gravity ACTIVATED (ball at rest)")
-                    #endif
-                }
-            } else {
-                if isGravityActive {
-                    isGravityActive = false
-                    hideGravityField()
-                    #if DEBUG
-                    print("🌍 1-ball gravity DEACTIVATED (ball moving)")
-                    #endif
-                }
-            }
-        }
-        
-        // Apply gravity effect if active
-        if kind == .one && isGravityActive {
-            applyGravityEffect()
-        }
-        
         // Track if 6-ball has moved for the first time
         if kind == .six && !hasHealerMovedOnce && ls > 1.0 {
             hasHealerMovedOnce = true
@@ -1927,7 +1761,7 @@ public final class BlockBall: SKNode {
         // Update healing state for 6-ball
         if kind == .six && hasHealerMovedOnce {
             // Check if ball is at rest
-            if ls < gravityRestThreshold && angSpeed < restAngularSpeedThreshold {
+            if ls < restLinearSpeedThreshold && angSpeed < restAngularSpeedThreshold {
                 if !isHealingActive {
                     isHealingActive = true
                     showHealingField()
@@ -2036,83 +1870,6 @@ public final class BlockBall: SKNode {
     }
     
     // MARK: - Gravity Effect (6-Ball)
-    
-    /// Show the gravity field visual indicator
-    private func showGravityField() {
-        // Remove existing field if any
-        gravityFieldNode?.removeFromParent()
-        
-        // Create a pulsing circle to indicate gravity field
-        let field = SKShapeNode(circleOfRadius: gravityRadius)
-        field.strokeColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.3)
-        field.lineWidth = 2.0
-        field.fillColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.05)
-        field.zPosition = -1  // Behind the ball
-        field.name = "gravityField"
-        
-        // Add pulsing animation
-        let scaleUp = SKAction.scale(to: 1.1, duration: 1.5)
-        let scaleDown = SKAction.scale(to: 0.9, duration: 1.5)
-        let pulse = SKAction.sequence([scaleUp, scaleDown])
-        let repeatPulse = SKAction.repeatForever(pulse)
-        field.run(repeatPulse)
-        
-        // Fade in
-        field.alpha = 0
-        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
-        field.run(fadeIn)
-        
-        addChild(field)
-        gravityFieldNode = field
-    }
-    
-    /// Hide the gravity field visual indicator
-    private func hideGravityField() {
-        guard let field = gravityFieldNode else { return }
-        
-        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
-        let remove = SKAction.removeFromParent()
-        field.run(SKAction.sequence([fadeOut, remove]))
-        gravityFieldNode = nil
-    }
-    
-    /// Apply gravity effect from this 1-ball to nearby balls
-    /// Attracts ALL balls (including cue balls) within the gravity radius
-    private func applyGravityEffect() {
-        guard let scene = self.scene ?? self.sceneRef else { return }
-        
-        // Find all balls in the scene
-        let allBalls = scene.children.compactMap { $0 as? BlockBall }
-        
-        for ball in allBalls {
-            // Don't attract ourselves
-            if ball === self {
-                continue
-            }
-            
-            // Calculate distance to this ball
-            let dx = self.position.x - ball.position.x
-            let dy = self.position.y - ball.position.y
-            let distance = hypot(dx, dy)
-            
-            // Check if within gravity radius
-            if distance > 0 && distance < gravityRadius {
-                // Calculate force direction (normalized)
-                let forceX = dx / distance
-                let forceY = dy / distance
-                
-                // Apply force that falls off with distance (inverse square law feels too strong, use linear)
-                let distanceRatio = 1.0 - (distance / gravityRadius)  // 1.0 at center, 0.0 at edge
-                let force = gravityStrength * distanceRatio
-                
-                // Apply impulse to the target ball
-                if let targetBody = ball.physicsBody {
-                    let impulse = CGVector(dx: forceX * force, dy: forceY * force)
-                    targetBody.applyImpulse(impulse)
-                }
-            }
-        }
-    }
     
     // MARK: - Healing Effect (6-Ball)
     
@@ -2290,9 +2047,6 @@ public final class BlockBall: SKNode {
     }
     
     deinit {
-        // Clean up gravity field
-        gravityFieldNode?.removeFromParent()
-        
         // Clean up healing field
         healingFieldNode?.removeFromParent()
         

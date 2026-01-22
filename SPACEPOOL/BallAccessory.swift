@@ -997,6 +997,1101 @@ final class ExplodeOnDestroyAccessory: BallAccessoryProtocol {
     }
 }
 
+/// Zapper accessory - unleashes lightning bolts at nearby balls when hit
+/// Has a 1-second charging animation before firing
+final class ZapperAccessory: BallAccessoryProtocol {
+    let id = "zapper"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private var isCharging = false
+    private var chargingNode: SKNode?
+    
+    // Configuration
+    static var zapRadius: CGFloat = 150.0 // 30 blocks * 5 points per block (configurable via settings)
+    private let zapDamage: CGFloat = 20.0
+    private let chargeDuration: TimeInterval = 1.0
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Add visual node to ball's visual container
+        ball.visualContainer.addChild(visualNode)
+        
+        #if DEBUG
+        print("⚡ Zapper accessory attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        visualNode.removeFromParent()
+        chargingNode?.removeFromParent()
+        chargingNode = nil
+        self.ball = nil
+        
+        #if DEBUG
+        print("⚡ Zapper accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // This accessory is triggered by the damage system, not by update
+    }
+    
+    /// Trigger the zapper effect (called by damage system when ball takes damage)
+    func triggerZap(from ball: BlockBall, scene: SKScene) {
+        guard !isCharging else {
+            #if DEBUG
+            print("⚡ Zapper already charging, ignoring trigger")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        print("⚡ Zapper triggered! Charging for \(chargeDuration)s...")
+        #endif
+        
+        isCharging = true
+        
+        // Start charging animation
+        startChargingAnimation(ball: ball, scene: scene)
+        
+        // After charge duration, unleash lightning
+        DispatchQueue.main.asyncAfter(deadline: .now() + chargeDuration) { [weak self, weak ball, weak scene] in
+            guard let self = self, let ball = ball, let scene = scene else { return }
+            
+            self.unleashLightning(from: ball, scene: scene)
+            self.isCharging = false
+        }
+    }
+    
+    /// Create charging animation around the ball
+    private func startChargingAnimation(ball: BlockBall, scene: SKScene) {
+        // Create charging visual effect container - attach to ball so it moves with it
+        let chargeContainer = SKNode()
+        chargeContainer.position = .zero // Position relative to ball
+        chargeContainer.zPosition = 100 // Above the ball
+        ball.addChild(chargeContainer) // Attach to ball so it travels with it
+        chargingNode = chargeContainer
+        
+        let blockSize: CGFloat = 5.0
+        
+        // Create rotating electric blocks around the ball
+        // 3 rings of blocks at different radii
+        for ringIndex in 0..<3 {
+            let radius = CGFloat(20 + ringIndex * 15) // 20, 35, 50
+            let blockCount = 8 + ringIndex * 4 // 8, 12, 16 blocks per ring
+            
+            for blockIndex in 0..<blockCount {
+                let block = SKSpriteNode(color: UIColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 0.9), 
+                                        size: CGSize(width: blockSize, height: blockSize))
+                block.alpha = 0.0
+                
+                // Position blocks in a circle
+                let angle = (CGFloat(blockIndex) / CGFloat(blockCount)) * 2 * .pi
+                let x = cos(angle) * radius
+                let y = sin(angle) * radius
+                block.position = CGPoint(x: x, y: y)
+                
+                chargeContainer.addChild(block)
+                
+                // Fade in
+                let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+                
+                // Rotate the entire ring
+                let rotationSpeed = ringIndex % 2 == 0 ? 1.0 : -1.0
+                let rotate = SKAction.customAction(withDuration: chargeDuration) { node, time in
+                    let progress = time / CGFloat(self.chargeDuration)
+                    let newAngle = angle + (.pi * 2 * progress * rotationSpeed)
+                    let newX = cos(newAngle) * radius
+                    let newY = sin(newAngle) * radius
+                    node.position = CGPoint(x: newX, y: newY)
+                }
+                
+                // Flicker effect
+                let flicker = SKAction.sequence([
+                    SKAction.fadeAlpha(to: 0.6, duration: 0.15),
+                    SKAction.fadeAlpha(to: 1.0, duration: 0.15)
+                ])
+                let flickerForever = SKAction.repeatForever(flicker)
+                
+                block.run(SKAction.sequence([
+                    fadeIn,
+                    SKAction.group([rotate, flickerForever])
+                ]))
+            }
+        }
+        
+        // Add crackling energy blocks that orbit randomly
+        for _ in 0..<12 {
+            let particle = SKSpriteNode(color: .cyan, size: CGSize(width: blockSize, height: blockSize))
+            particle.alpha = 0.0
+            particle.position = .zero
+            chargeContainer.addChild(particle)
+            
+            // Random orbit animation
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let radius = CGFloat.random(in: 20...50)
+            let duration = TimeInterval.random(in: 0.4...0.8)
+            
+            let fadeIn = SKAction.fadeIn(withDuration: 0.2)
+            
+            let orbit = SKAction.customAction(withDuration: chargeDuration) { node, time in
+                let progress = time / CGFloat(self.chargeDuration)
+                let currentAngle = angle + progress * .pi * 6
+                let x = cos(currentAngle) * radius
+                let y = sin(currentAngle) * radius
+                node.position = CGPoint(x: x, y: y)
+            }
+            
+            let flicker = SKAction.sequence([
+                SKAction.fadeOut(withDuration: 0.1),
+                SKAction.fadeIn(withDuration: 0.1)
+            ])
+            
+            particle.run(SKAction.sequence([
+                fadeIn,
+                SKAction.group([
+                    orbit,
+                    SKAction.repeatForever(flicker)
+                ])
+            ]))
+        }
+        
+        // Remove charging node after animation
+        chargeContainer.run(SKAction.sequence([
+            SKAction.wait(forDuration: chargeDuration + 0.2),
+            SKAction.fadeOut(withDuration: 0.2),
+            SKAction.removeFromParent()
+        ]))
+    }
+    
+    /// Unleash lightning bolts at all nearby balls
+    private func unleashLightning(from ball: BlockBall, scene: SKScene) {
+        #if DEBUG
+        print("⚡⚡⚡ LIGHTNING UNLEASHED from \(ball.ballKind) ball!")
+        #endif
+        
+        // Find all balls within zap radius
+        guard let starScene = scene as? StarfieldScene else { return }
+        
+        var targets: [BlockBall] = []
+        for case let targetBall as BlockBall in scene.children {
+            guard targetBall !== ball else { continue }
+            
+            let dx = targetBall.position.x - ball.position.x
+            let dy = targetBall.position.y - ball.position.y
+            let distance = hypot(dx, dy)
+            
+            if distance <= ZapperAccessory.zapRadius {
+                targets.append(targetBall)
+            }
+        }
+        
+        #if DEBUG
+        print("⚡ Found \(targets.count) targets within \(ZapperAccessory.zapRadius) points")
+        #endif
+        
+        // Fire lightning at each target
+        for target in targets {
+            fireLightningBolt(from: ball.position, to: target, scene: starScene)
+        }
+    }
+    
+    /// Fire a single lightning bolt at a target
+    private func fireLightningBolt(from start: CGPoint, to target: BlockBall, scene: StarfieldScene) {
+        let targetPos = target.position
+        
+        // Create jagged lightning path
+        let path = createJaggedLightningPath(from: start, to: targetPos)
+        
+        // Create lightning visual
+        let lightning = SKShapeNode(path: path)
+        lightning.strokeColor = UIColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 1.0)
+        lightning.lineWidth = 3.0
+        lightning.glowWidth = 8.0
+        lightning.zPosition = 2500
+        scene.addChild(lightning)
+        
+        // Add glow effect
+        let glow = SKShapeNode(path: path)
+        glow.strokeColor = UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.6)
+        glow.lineWidth = 8.0
+        glow.zPosition = 2499
+        scene.addChild(glow)
+        
+        // Flash animation
+        let flash = SKAction.sequence([
+            SKAction.wait(forDuration: 0.05),
+            SKAction.fadeOut(withDuration: 0.1)
+        ])
+        lightning.run(SKAction.sequence([flash, SKAction.removeFromParent()]))
+        glow.run(SKAction.sequence([flash, SKAction.removeFromParent()]))
+        
+        // Scorch the felt along the lightning path
+        scorchFeltAlongPath(path: path, scene: scene)
+        
+        // Apply damage to target
+        if let damageSystem = scene.damageSystem {
+            damageSystem.applyDirectDamage(to: target, amount: zapDamage)
+            
+            #if DEBUG
+            print("⚡ Lightning hit \(target.ballKind) ball for \(zapDamage) damage!")
+            #endif
+        }
+        
+        // Create impact flash at target
+        let impactFlash = SKShapeNode(circleOfRadius: 15)
+        impactFlash.fillColor = .white
+        impactFlash.strokeColor = .clear
+        impactFlash.position = targetPos
+        impactFlash.zPosition = 2501
+        impactFlash.alpha = 0.8
+        scene.addChild(impactFlash)
+        
+        let impactAnim = SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 2.0, duration: 0.15),
+                SKAction.fadeOut(withDuration: 0.15)
+            ]),
+            SKAction.removeFromParent()
+        ])
+        impactFlash.run(impactAnim)
+    }
+    
+    /// Create a jagged lightning path using CGPath
+    private func createJaggedLightningPath(from start: CGPoint, to end: CGPoint) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: start)
+        
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let distance = hypot(dx, dy)
+        let segments = Int(distance / 10) // One segment every 10 points
+        
+        var currentPoint = start
+        
+        for i in 1..<segments {
+            let progress = CGFloat(i) / CGFloat(segments)
+            
+            // Base position along straight line
+            let baseX = start.x + dx * progress
+            let baseY = start.y + dy * progress
+            
+            // Add random perpendicular offset for jaggedness
+            let perpX = -dy / distance
+            let perpY = dx / distance
+            let offset = CGFloat.random(in: -15...15)
+            
+            let jaggedX = baseX + perpX * offset
+            let jaggedY = baseY + perpY * offset
+            
+            currentPoint = CGPoint(x: jaggedX, y: jaggedY)
+            path.addLine(to: currentPoint)
+        }
+        
+        // Final point is exactly the target
+        path.addLine(to: end)
+        
+        return path
+    }
+    
+    /// Scorch the felt along the lightning path
+    private func scorchFeltAlongPath(path: CGPath, scene: StarfieldScene) {
+        guard let feltManager = scene.feltManager else { return }
+        
+        // Sample points along the path and scorch them
+        let pathLength = path.approximateLength()
+        let sampleInterval: CGFloat = 5.0 // Sample every 5 points
+        let sampleCount = Int(pathLength / sampleInterval)
+        
+        for i in 0...sampleCount {
+            let progress = CGFloat(i) / CGFloat(sampleCount)
+            if let point = path.point(at: progress) {
+                feltManager.trackBurningBallPosition(at: point, scene: scene)
+            }
+        }
+    }
+}
+
+// MARK: - CGPath Extensions for Lightning
+extension CGPath {
+    /// Approximate the length of a path
+    func approximateLength() -> CGFloat {
+        var length: CGFloat = 0
+        var previousPoint: CGPoint?
+        
+        self.applyWithBlock { element in
+            let points = element.pointee.points
+            let point: CGPoint
+            
+            switch element.pointee.type {
+            case .moveToPoint:
+                point = points[0]
+            case .addLineToPoint:
+                point = points[0]
+                if let prev = previousPoint {
+                    length += hypot(point.x - prev.x, point.y - prev.y)
+                }
+            case .addQuadCurveToPoint:
+                point = points[1]
+                if let prev = previousPoint {
+                    length += hypot(point.x - prev.x, point.y - prev.y)
+                }
+            case .addCurveToPoint:
+                point = points[2]
+                if let prev = previousPoint {
+                    length += hypot(point.x - prev.x, point.y - prev.y)
+                }
+            case .closeSubpath:
+                return
+            @unknown default:
+                return
+            }
+            
+            previousPoint = point
+        }
+        
+        return length
+    }
+    
+    /// Get a point at a specific progress along the path (0.0 to 1.0)
+    func point(at progress: CGFloat) -> CGPoint? {
+        let targetLength = approximateLength() * progress
+        var currentLength: CGFloat = 0
+        var previousPoint: CGPoint?
+        var resultPoint: CGPoint?
+        
+        self.applyWithBlock { element in
+            guard resultPoint == nil else { return }
+            
+            let points = element.pointee.points
+            let point: CGPoint
+            
+            switch element.pointee.type {
+            case .moveToPoint:
+                point = points[0]
+                previousPoint = point
+                return
+            case .addLineToPoint:
+                point = points[0]
+            case .addQuadCurveToPoint:
+                point = points[1]
+            case .addCurveToPoint:
+                point = points[2]
+            case .closeSubpath:
+                return
+            @unknown default:
+                return
+            }
+            
+            if let prev = previousPoint {
+                let segmentLength = hypot(point.x - prev.x, point.y - prev.y)
+                
+                if currentLength + segmentLength >= targetLength {
+                    // Target is in this segment
+                    let ratio = (targetLength - currentLength) / segmentLength
+                    resultPoint = CGPoint(
+                        x: prev.x + (point.x - prev.x) * ratio,
+                        y: prev.y + (point.y - prev.y) * ratio
+                    )
+                    return
+                }
+                
+                currentLength += segmentLength
+            }
+            
+            previousPoint = point
+        }
+        
+        return resultPoint ?? previousPoint
+    }
+}
+
+/// Pulse accessory - charges for 1 second then releases a damaging pulse when hit
+/// Used by 4-balls to create area-of-effect damage
+final class PulseAccessory: BallAccessoryProtocol {
+    let id = "pulse"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private var isCharging = false
+    private var chargingNode: SKNode?
+    
+    // Configuration
+    static var pulseRadius: CGFloat = 90.0  // 18 blocks * 5 points per block (configurable)
+    static var pulseDelay: TimeInterval = 1.0  // Delay before pulse fires
+    static var maxTriggers: Int = 2  // How many times can this ball pulse before breaking
+    
+    private var triggerCount: Int = 0
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // No permanent visuals - charging animation is shown when triggered
+        
+        #if DEBUG
+        print("💜 Pulse accessory attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        visualNode.removeFromParent()
+        chargingNode?.removeFromParent()
+        chargingNode = nil
+        self.ball = nil
+        
+        #if DEBUG
+        print("💜 Pulse accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // This accessory is triggered by the damage system, not by update
+    }
+    
+    /// Trigger the pulse effect (called by damage system when ball takes damage)
+    func triggerPulse(from ball: BlockBall, damageSystem: BallDamageSystem) {
+        guard !isCharging else {
+            #if DEBUG
+            print("💜 Pulse already charging, ignoring trigger")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        print("💜 Pulse triggered! Charging for \(PulseAccessory.pulseDelay)s...")
+        #endif
+        
+        // Increment trigger count
+        triggerCount += 1
+        
+        let shouldDestroyAfter = (triggerCount >= PulseAccessory.maxTriggers)
+        
+        #if DEBUG
+        print("💜 Pulse trigger count: \(triggerCount)/\(PulseAccessory.maxTriggers)")
+        #endif
+        
+        isCharging = true
+        
+        // Start charging animation (blocky ring that follows the ball)
+        startChargingAnimation(ball: ball)
+        
+        // After delay, unleash pulse
+        DispatchQueue.main.asyncAfter(deadline: .now() + PulseAccessory.pulseDelay) { [weak self, weak ball] in
+            guard let self = self, let ball = ball else { return }
+            
+            // Get damage system from scene
+            guard let scene = ball.scene as? StarfieldScene,
+                  let damageSystem = scene.damageSystem else {
+                self.isCharging = false
+                return
+            }
+            
+            self.unleashPulse(from: ball, damageSystem: damageSystem)
+            self.isCharging = false
+            
+            // Destroy ball if it reached max triggers
+            if shouldDestroyAfter {
+                #if DEBUG
+                print("💜 Pulse ball reached max triggers, destroying!")
+                #endif
+                damageSystem.applyDirectDamage(to: ball, amount: 9999)
+            }
+        }
+    }
+    
+    /// Create charging animation around the ball (blocky ring that follows it)
+    private func startChargingAnimation(ball: BlockBall) {
+        let blockSize: CGFloat = 5.0
+        
+        // Create a container node that will be a child of the 4-ball (travels with it)
+        let chargeContainer = SKNode()
+        chargeContainer.name = "pulseChargeEffect"
+        chargeContainer.zPosition = -1  // Behind the ball
+        ball.addChild(chargeContainer)
+        chargingNode = chargeContainer
+        
+        // Create blocky ring around the ball using 5x5 pixel blocks
+        let ringRadius: CGFloat = 20.0
+        let blockCount = 16
+        
+        var blocks: [SKSpriteNode] = []
+        
+        for i in 0..<blockCount {
+            let angle = (CGFloat(i) / CGFloat(blockCount)) * .pi * 2
+            let x = cos(angle) * ringRadius
+            let y = sin(angle) * ringRadius
+            
+            let block = SKSpriteNode(color: SKColor.systemPurple, size: CGSize(width: blockSize, height: blockSize))
+            block.position = CGPoint(x: x, y: y)
+            block.alpha = 0
+            block.texture?.filteringMode = .nearest
+            chargeContainer.addChild(block)
+            blocks.append(block)
+        }
+        
+        // Fade in quickly
+        let fadeIn = SKAction.fadeAlpha(to: 0.7, duration: 0.15)
+        
+        // Pulsing animation during charge
+        let pulseOut = SKAction.group([
+            SKAction.scale(to: 1.4, duration: 0.3),
+            SKAction.fadeAlpha(to: 0.9, duration: 0.3)
+        ])
+        let pulseIn = SKAction.group([
+            SKAction.scale(to: 1.0, duration: 0.3),
+            SKAction.fadeAlpha(to: 0.5, duration: 0.3)
+        ])
+        let pulse = SKAction.sequence([pulseOut, pulseIn])
+        let pulseCount = Int(PulseAccessory.pulseDelay / 0.6)
+        let repeatPulse = SKAction.repeat(pulse, count: pulseCount)
+        
+        // Color shift during charge
+        let colorShiftDuration = PulseAccessory.pulseDelay / 4
+        let colorToPink = SKAction.run {
+            blocks.forEach { $0.color = SKColor.systemPink }
+        }
+        let colorToPurple = SKAction.run {
+            blocks.forEach { $0.color = SKColor.systemPurple }
+        }
+        let colorShift = SKAction.sequence([
+            SKAction.wait(forDuration: colorShiftDuration),
+            colorToPink,
+            SKAction.wait(forDuration: colorShiftDuration),
+            colorToPurple,
+            SKAction.wait(forDuration: colorShiftDuration),
+            colorToPink,
+            SKAction.wait(forDuration: colorShiftDuration),
+            colorToPurple
+        ])
+        
+        // Final flash before pulse
+        let finalFlash = SKAction.sequence([
+            SKAction.fadeAlpha(to: 1.0, duration: 0.1),
+            SKAction.fadeAlpha(to: 0.0, duration: 0.1)
+        ])
+        
+        // Apply animations to all blocks
+        for block in blocks {
+            block.run(fadeIn)
+        }
+        
+        // Run pulse and color shift on container
+        chargeContainer.run(SKAction.sequence([
+            SKAction.group([repeatPulse, colorShift]),
+            SKAction.run { [weak chargeContainer] in
+                chargeContainer?.children.forEach { $0.run(finalFlash) }
+            },
+            SKAction.wait(forDuration: 0.2),
+            SKAction.removeFromParent()
+        ]))
+    }
+    
+    /// Unleash the pulse wave that damages nearby balls
+    private func unleashPulse(from ball: BlockBall, damageSystem: BallDamageSystem) {
+        guard let scene = ball.scene else { return }
+        
+        #if DEBUG
+        print("💜💜💜 PULSE UNLEASHED from \(ball.ballKind) ball!")
+        #endif
+        
+        let blockSize: CGFloat = 5.0
+        let radius = PulseAccessory.pulseRadius
+        let center = ball.position
+        
+        // Visual: colorful changing translucent circle that expands to radius
+        let ring = SKShapeNode(circleOfRadius: 8)
+        ring.position = center
+        ring.zPosition = 3500
+        ring.lineWidth = 7.0
+        ring.fillColor = SKColor.clear
+        ring.strokeColor = SKColor.systemPurple
+        ring.alpha = 0.7
+        scene.addChild(ring)
+        
+        // Outer ring for double-ring effect
+        let outerRing = SKShapeNode(circleOfRadius: 8)
+        outerRing.position = center
+        outerRing.zPosition = 3499
+        outerRing.lineWidth = 4.5
+        outerRing.fillColor = SKColor.clear
+        outerRing.strokeColor = SKColor.systemPurple.withAlphaComponent(0.3)
+        outerRing.alpha = 0.5
+        scene.addChild(outerRing)
+        
+        // Color cycle
+        let colors: [SKColor] = [
+            SKColor(red: 0.5, green: 0.0, blue: 0.9, alpha: 1.0),
+            SKColor(red: 0.9, green: 0.0, blue: 0.7, alpha: 1.0),
+            SKColor(red: 0.0, green: 0.9, blue: 0.9, alpha: 1.0),
+            SKColor(red: 0.9, green: 0.0, blue: 0.9, alpha: 1.0),
+            SKColor(red: 0.9, green: 0.4, blue: 0.0, alpha: 1.0),
+            SKColor(red: 0.3, green: 0.3, blue: 0.9, alpha: 1.0),
+            SKColor(red: 0.6, green: 0.0, blue: 0.9, alpha: 1.0)
+        ]
+        let wait = SKAction.wait(forDuration: 0.05)
+        var sequence: [SKAction] = []
+        for color in colors {
+            let setColor = SKAction.run { [weak ring, weak outerRing] in
+                ring?.strokeColor = color
+                outerRing?.strokeColor = color.withAlphaComponent(0.3)
+            }
+            sequence.append(setColor)
+            sequence.append(wait)
+        }
+        let cycle = SKAction.sequence(sequence)
+        let repeatCycle = SKAction.repeatForever(cycle)
+        ring.run(repeatCycle)
+        outerRing.run(repeatCycle)
+        
+        // Expand and fade
+        let expand = SKAction.scale(to: radius / 8.0, duration: 0.55)
+        expand.timingMode = .easeOut
+        let fade = SKAction.fadeOut(withDuration: 0.55)
+        let group = SKAction.group([expand, fade])
+        let remove = SKAction.removeFromParent()
+        ring.run(SKAction.sequence([group, remove]))
+        
+        let outerExpand = SKAction.scale(to: (radius / 8.0) * 1.15, duration: 0.6)
+        outerExpand.timingMode = .easeOut
+        let outerFade = SKAction.fadeOut(withDuration: 0.6)
+        let outerGroup = SKAction.group([outerExpand, outerFade])
+        outerRing.run(SKAction.sequence([outerGroup, remove]))
+        
+        // Find targets and apply damage
+        let maxEffectRadius = radius + 5.0
+        var victims: [(ball: BlockBall, distance: CGFloat)] = []
+        
+        for case let targetBall as BlockBall in scene.children {
+            guard targetBall !== ball else { continue }
+            
+            // Skip cue balls - they are immune to pulse
+            if targetBall.ballKind == .cue {
+                continue
+            }
+            
+            let dx = targetBall.position.x - center.x
+            let dy = targetBall.position.y - center.y
+            let dist = hypot(dx, dy)
+            
+            if dist <= maxEffectRadius {
+                victims.append((ball: targetBall, distance: dist))
+            }
+        }
+        
+        #if DEBUG
+        print("💜 Pulse found \(victims.count) victims within \(radius) points")
+        #endif
+        
+        // Apply damage with falloff
+        for victim in victims {
+            let distance = victim.distance
+            
+            if distance <= radius {
+                // Core zone: full damage (instant kill)
+                damageSystem.performDisintegrationAnimation(on: victim.ball, intensity: 1.0)
+                damageSystem.applyDirectDamage(to: victim.ball, amount: 9999)
+            } else {
+                // Falloff zone: scaled damage
+                let falloffDistance = distance - radius
+                let falloffRatio = 1.0 - (falloffDistance / 5.0)
+                
+                damageSystem.performDisintegrationAnimation(on: victim.ball, intensity: falloffRatio)
+                
+                let scaledDamage = 100.0 * falloffRatio
+                damageSystem.applyDirectDamage(to: victim.ball, amount: scaledDamage)
+            }
+        }
+    }
+}
+
+/// Spawner accessory - spawns a new cue ball when this ball takes damage from a cue ball
+/// Used by 2-balls to duplicate the cue ball on contact
+final class SpawnerAccessory: BallAccessoryProtocol {
+    let id = "spawner"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // No visuals - this is a pure ability accessory
+        // The ball's color/appearance is enough to show it has this ability
+        
+        #if DEBUG
+        print("🔵 Spawner accessory attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        self.ball = nil
+        
+        #if DEBUG
+        print("🔵 Spawner accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // No update needed - the damage system handles spawning on damage
+        // This accessory is purely a marker that triggers behavior in BallDamageSystem
+    }
+    
+    /// Trigger the spawner effect (called by damage system when ball takes damage from a cue ball)
+    func triggerSpawn(from ball: BlockBall, source: BlockBall, damageSystem: BallDamageSystem?) {
+        // Get scene and geometry
+        guard let scene = ball.scene ?? ball.sceneRef else {
+            #if DEBUG
+            print("❌ Spawner: Cannot spawn - ball has no scene")
+            #endif
+            return
+        }
+        
+        let starfieldScene = scene as? StarfieldScene
+        var feltRect: CGRect = starfieldScene?.blockFeltRect ?? scene.frame
+        var pocketCenters: [CGPoint] = starfieldScene?.blockPocketCenters ?? []
+        var pocketRadius: CGFloat = starfieldScene?.blockPocketRadius ?? 0
+        
+        // Helper: Check if spawn position is valid (not in hole, not on another ball)
+        func isValidSpawn(_ p: CGPoint) -> Bool {
+            // Check grid for holes if available
+            if let feltManager = starfieldScene?.feltManager {
+                if feltManager.isHole(at: p) {
+                    return false  // Can't spawn in hole
+                }
+                if !feltManager.isFelt(at: p) {
+                    return false  // Can't spawn on non-felt
+                }
+            }
+            
+            // Check distance from existing balls
+            if let starScene = starfieldScene {
+                let existingBalls = starScene.children.compactMap { $0 as? BlockBall }
+                for existingBall in existingBalls {
+                    let distance = hypot(p.x - existingBall.position.x, p.y - existingBall.position.y)
+                    if distance < 30 {  // Minimum clearance
+                        return false
+                    }
+                }
+            }
+            
+            return true
+        }
+        
+        // Try to find valid spawn position with intelligent fallback
+        var spawnPos: CGPoint?
+        
+        // Attempt 1: Try position to the right of spawner ball
+        let offset = CGPoint(x: 40, y: 0)
+        let base = ball.position
+        var candidate = CGPoint(x: base.x + offset.x, y: base.y + offset.y)
+        
+        // Clamp to felt bounds and avoid pockets
+        candidate.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, candidate.x))
+        candidate.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, candidate.y))
+        
+        // Push away from pockets if too close
+        for c in pocketCenters {
+            if hypot(candidate.x - c.x, candidate.y - c.y) <= pocketRadius + 16.0 {
+                let center = CGPoint(x: feltRect.midX, y: feltRect.midY)
+                let dir = CGVector(dx: center.x - candidate.x, dy: center.y - candidate.y)
+                let len = max(1.0, hypot(dir.dx, dir.dy))
+                candidate.x += dir.dx / len * (pocketRadius + 16.0)
+                candidate.y += dir.dy / len * (pocketRadius + 16.0)
+            }
+        }
+        
+        if isValidSpawn(candidate) {
+            spawnPos = candidate
+        } else {
+            // Attempt 2: Try other directions around the spawner ball
+            let directions: [CGPoint] = [
+                CGPoint(x: -40, y: 0),   // Left
+                CGPoint(x: 0, y: 40),    // Up
+                CGPoint(x: 0, y: -40),   // Down
+                CGPoint(x: 30, y: 30),   // Diagonal up-right
+                CGPoint(x: -30, y: 30),  // Diagonal up-left
+                CGPoint(x: 30, y: -30),  // Diagonal down-right
+                CGPoint(x: -30, y: -30)  // Diagonal down-left
+            ]
+            
+            for direction in directions {
+                var testPos = CGPoint(x: base.x + direction.x, y: base.y + direction.y)
+                testPos.x = max(feltRect.minX + 16.0, min(feltRect.maxX - 16.0, testPos.x))
+                testPos.y = max(feltRect.minY + 16.0, min(feltRect.maxY - 16.0, testPos.y))
+                
+                if isValidSpawn(testPos) {
+                    spawnPos = testPos
+                    break
+                }
+            }
+            
+            // Attempt 3: Use random spawn system as last resort
+            if spawnPos == nil {
+                #if DEBUG
+                print("⚠️ Spawner: Directional spawns failed, trying random spawn...")
+                #endif
+                spawnPos = starfieldScene?.randomSpawnPoint(minClearance: 20)
+            }
+            
+            // Attempt 4: Absolute last resort - spawn at original candidate even if not ideal
+            if spawnPos == nil {
+                #if DEBUG
+                print("⚠️ Spawner: All spawn attempts failed, using original position!")
+                #endif
+                spawnPos = candidate
+            }
+        }
+        
+        guard let finalSpawnPos = spawnPos else {
+            #if DEBUG
+            print("❌ Spawner: Failed to find ANY spawn position!")
+            #endif
+            return
+        }
+        
+        // Create new cue ball at the spawn position
+        let newCue = BlockBall(
+            kind: .cue,
+            shape: .circle,
+            position: finalSpawnPos,
+            in: scene,
+            feltRect: feltRect,
+            pocketCenters: pocketCenters,
+            pocketRadius: pocketRadius
+        )
+        damageSystem?.registerBall(newCue)
+        
+        // Ensure global aiming includes this new cue ball
+        if let starScene = starfieldScene {
+            starScene.addCueBall(newCue)
+        }
+        newCue.canShoot = true
+        
+        // Set collision immunity between the new cue and the spawner ball temporarily
+        if let damageSystem = damageSystem {
+            damageSystem.setTemporaryImmunity(between: newCue, and: ball, duration: 0.3)
+        }
+        
+        // Push the source cue ball away from the spawner to prevent immediate re-collision
+        if let sourceBody = source.physicsBody {
+            let sourceDir = CGVector(dx: source.position.x - base.x, dy: source.position.y - base.y)
+            let sourceLen = max(1.0, hypot(sourceDir.dx, sourceDir.dy))
+            sourceBody.applyImpulse(CGVector(dx: sourceDir.dx / sourceLen * 25, dy: sourceDir.dy / sourceLen * 25))
+        }
+        
+        // Apply impulse away from spawner to the new cue
+        if let body = newCue.physicsBody {
+            let dir = CGVector(dx: finalSpawnPos.x - base.x, dy: finalSpawnPos.y - base.y)
+            let len = max(1.0, hypot(dir.dx, dir.dy))
+            body.applyImpulse(CGVector(dx: dir.dx / len * 25, dy: dir.dy / len * 25))
+        }
+        
+        #if DEBUG
+        print("🟦 Spawner created duplicate cue ball at \(finalSpawnPos)")
+        #endif
+    }
+}
+
+/// Heavy accessory - increases ball mass by 10x, making it much harder to move
+/// Used by 3-balls to create a heavyweight ball that resists movement
+final class HeavyAccessory: BallAccessoryProtocol {
+    let id = "heavy"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private let massMultiplier: CGFloat = 10.0  // 10x heavier than normal
+    private var originalMass: CGFloat = 0.17  // Default normal mass
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Store original mass and apply heavy multiplier
+        if let body = ball.physicsBody {
+            originalMass = body.mass
+            body.mass = originalMass * massMultiplier
+            
+            #if DEBUG
+            print("💪 Heavy accessory attached to \(ball.ballKind) ball")
+            print("   Mass changed: \(String(format: "%.2f", originalMass)) -> \(String(format: "%.2f", body.mass))")
+            #endif
+        }
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        // Restore original mass
+        if let body = ball.physicsBody {
+            body.mass = originalMass
+            
+            #if DEBUG
+            print("💪 Heavy accessory detached - mass restored to \(String(format: "%.2f", originalMass))")
+            #endif
+        }
+        
+        self.ball = nil
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // Heavy accessory is passive - no update needed
+    }
+}
+
+/// Gravity accessory - attracts nearby balls when the ball is at rest
+/// Used by 1-balls to create a gravitational pull field
+final class GravityAccessory: BallAccessoryProtocol {
+    let id = "gravity"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    
+    // Gravity state
+    private var hasMovedOnce = false  // Track if ball has moved yet
+    private var isGravityActive = false  // Track if gravity is currently active
+    private let gravityRadius: CGFloat = 150.0  // 30 blocks * 5 points per block
+    private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
+    private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
+    private let restAngularSpeedThreshold: CGFloat = 0.5  // Angular speed threshold for rest
+    private var gravityFieldNode: SKShapeNode?  // Visual indicator of gravity field
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        #if DEBUG
+        print("🌍 Gravity accessory attached to \(ball.ballKind) ball")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        hideGravityField()
+        self.ball = nil
+        
+        #if DEBUG
+        print("🌍 Gravity accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        guard let body = ball.physicsBody else { return }
+        
+        let ls = hypot(body.velocity.dx, body.velocity.dy)
+        let angSpeed = abs(body.angularVelocity)
+        
+        // Track if ball has moved for the first time
+        if !hasMovedOnce && ls > 1.0 {
+            hasMovedOnce = true
+            #if DEBUG
+            print("🌍 Gravity ball has moved for the first time - gravity will activate when it comes to rest")
+            #endif
+        }
+        
+        // Update gravity state if ball has moved at least once
+        if hasMovedOnce {
+            // Check if ball is at rest
+            if ls < self.gravityRestThreshold && angSpeed < self.restAngularSpeedThreshold {
+                if !isGravityActive {
+                    isGravityActive = true
+                    showGravityField(for: ball)
+                    #if DEBUG
+                    print("🌍 Gravity ACTIVATED (ball at rest)")
+                    #endif
+                }
+            } else {
+                if isGravityActive {
+                    isGravityActive = false
+                    hideGravityField()
+                    #if DEBUG
+                    print("🌍 Gravity DEACTIVATED (ball moving)")
+                    #endif
+                }
+            }
+        }
+        
+        // Apply gravity effect if active
+        if isGravityActive {
+            applyGravityEffect(from: ball)
+        }
+    }
+    
+    /// Show the gravity field visual indicator
+    private func showGravityField(for ball: BlockBall) {
+        // Remove existing field if any
+        gravityFieldNode?.removeFromParent()
+        
+        // Create a pulsing circle to indicate gravity field
+        let field = SKShapeNode(circleOfRadius: gravityRadius)
+        field.strokeColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.3)
+        field.lineWidth = 2.0
+        field.fillColor = SKColor(red: 1.0, green: 0.9, blue: 0.0, alpha: 0.05)
+        field.zPosition = -1  // Behind the ball
+        field.name = "gravityField"
+        
+        // Add pulsing animation
+        let scaleUp = SKAction.scale(to: 1.1, duration: 1.5)
+        let scaleDown = SKAction.scale(to: 0.9, duration: 1.5)
+        let pulse = SKAction.sequence([scaleUp, scaleDown])
+        let repeatPulse = SKAction.repeatForever(pulse)
+        field.run(repeatPulse)
+        
+        // Fade in
+        field.alpha = 0
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
+        field.run(fadeIn)
+        
+        ball.addChild(field)
+        gravityFieldNode = field
+    }
+    
+    /// Hide the gravity field visual indicator
+    private func hideGravityField() {
+        guard let field = gravityFieldNode else { return }
+        
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        field.run(SKAction.sequence([fadeOut, remove]))
+        gravityFieldNode = nil
+    }
+    
+    /// Apply gravitational pull to nearby balls
+    private func applyGravityEffect(from ball: BlockBall) {
+        guard let scene = ball.scene else { return }
+        
+        // Find all other balls in the scene
+        for case let targetBall as BlockBall in scene.children {
+            // Don't attract ourselves
+            if targetBall === ball {
+                continue
+            }
+            
+            // Calculate distance to this ball
+            let dx = ball.position.x - targetBall.position.x
+            let dy = ball.position.y - targetBall.position.y
+            let distance = hypot(dx, dy)
+            
+            // Check if within gravity radius
+            if distance > 0 && distance < gravityRadius {
+                // Calculate force direction (normalized)
+                let forceX = dx / distance
+                let forceY = dy / distance
+                
+                // Apply force that falls off with distance (inverse square law feels too strong, use linear)
+                let distanceRatio = 1.0 - (distance / gravityRadius)  // 1.0 at center, 0.0 at edge
+                let force = gravityStrength * distanceRatio
+                
+                // Apply impulse to the target ball
+                if let targetBody = targetBall.physicsBody {
+                    targetBody.applyImpulse(CGVector(dx: forceX * force, dy: forceY * force))
+                }
+            }
+        }
+    }
+}
+
 /// Temporary Burning accessory - spreads on contact and disappears after dealing 20 damage
 /// Created when a ball with burning touches another ball
 final class TempBurningAccessory: BallAccessoryProtocol {
@@ -1278,10 +2373,15 @@ final class BallAccessoryManager {
     private func registerDefaultAccessories() {
         // Register built-in accessories
         registerAccessory(FlyingAccessory())
+        registerAccessory(HeavyAccessory())  // NEW: Heavy mass
+        registerAccessory(GravityAccessory())  // NEW: Gravity attraction
         registerAccessory(BurningAccessory())
         registerAccessory(TempBurningAccessory())
         registerAccessory(ExplodeOnContactAccessory())
         registerAccessory(ExplodeOnDestroyAccessory())  // NEW: Explode when destroyed
+        registerAccessory(ZapperAccessory())  // NEW: Lightning zapper
+        registerAccessory(SpawnerAccessory())  // NEW: Spawns cue balls
+        registerAccessory(PulseAccessory())  // NEW: Damaging pulse
         
         // Register all hat styles
         registerAccessory(HatAccessory(style: .topHat))
@@ -1316,6 +2416,10 @@ final class BallAccessoryManager {
         switch id {
         case "flying":
             accessory = FlyingAccessory()
+        case "heavy":
+            accessory = HeavyAccessory()
+        case "gravity":
+            accessory = GravityAccessory()
         case "burning":
             accessory = BurningAccessory()
         case "tempBurning":
@@ -1324,6 +2428,12 @@ final class BallAccessoryManager {
             accessory = ExplodeOnContactAccessory()
         case "explodeOnDestroy":
             accessory = ExplodeOnDestroyAccessory()
+        case "zapper":
+            accessory = ZapperAccessory()
+        case "spawner":
+            accessory = SpawnerAccessory()
+        case "pulse":
+            accessory = PulseAccessory()
         case "hat_topHat":
             accessory = HatAccessory(style: .topHat)
         case "hat_bowler":
@@ -1492,5 +2602,27 @@ final class BallAccessoryManager {
     /// Check if a ball has the explode on contact ability
     func hasExplodeOnContact(ball: BlockBall) -> Bool {
         return hasAccessory(ball: ball, id: "explodeOnContact")
+    }
+    
+    /// Check if a ball has the spawner ability
+    func hasSpawner(ball: BlockBall) -> Bool {
+        return hasAccessory(ball: ball, id: "spawner")
+    }
+    
+    /// Get the spawner accessory instance for a ball (if it has one)
+    func getSpawnerAccessory(for ball: BlockBall) -> SpawnerAccessory? {
+        let ballID = ObjectIdentifier(ball)
+        return ballAccessories[ballID]?.first(where: { $0.id == "spawner" }) as? SpawnerAccessory
+    }
+    
+    /// Check if a ball has the heavy accessory (10x mass)
+    func hasHeavy(ball: BlockBall) -> Bool {
+        return hasAccessory(ball: ball, id: "heavy")
+    }
+    
+    /// Get the pulse accessory instance for a ball (if it has one)
+    func getPulseAccessory(for ball: BlockBall) -> PulseAccessory? {
+        let ballID = ObjectIdentifier(ball)
+        return ballAccessories[ballID]?.first(where: { $0.id == "pulse" }) as? PulseAccessory
     }
 }

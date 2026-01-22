@@ -80,6 +80,9 @@ final class BallDamageSystem {
         /// 4-ball pulse damage radius in blocks (default 18.0)
         var fourBallDamageRadius: CGFloat = 18.0
         
+        /// 4-ball pulse delay in seconds before triggering (default 1.0)
+        var fourBallPulseDelay: TimeInterval = 1.0
+        
         /// Maximum number of times a 4-ball can be triggered before being destroyed (default 2)
         var fourBallMaxTriggers: Int = 2
         
@@ -160,10 +163,24 @@ final class BallDamageSystem {
     /// Register a ball with the damage system
     /// - Parameters:
     ///   - ball: The ball to register
-    ///   - customHP: Optional custom HP value. If nil, uses config.startingHP
+    ///   - customHP: Optional custom HP value. If nil, uses config.startingHP (with special cases)
     func registerBall(_ ball: BlockBall, customHP: CGFloat? = nil) {
         let id = ObjectIdentifier(ball)
-        let maxHP = customHP ?? config.startingHP
+        
+        // Determine max HP
+        let maxHP: CGFloat
+        if let custom = customHP {
+            maxHP = custom
+        } else {
+            // Special HP values for specific ball types
+            switch ball.ballKind {
+            case .nine:
+                maxHP = 50  // 9-balls have 50 HP (zapper balls are more fragile)
+            default:
+                maxHP = config.startingHP  // Default 100 HP
+            }
+        }
+        
         let health = BallHealth(ball: ball, maxHP: maxHP)
         ballHealthMap[id] = health
         
@@ -297,36 +314,7 @@ final class BallDamageSystem {
         // - Any other → Any other: 1 damage each
         let damageMultiplier: CGFloat = config.damageMultiplier  // Use config multiplier (1.0-10.0)
         
-        // Special handling: cue collides with 4-ball (immovable object)
-        if (kind1 == .cue && kind2 == .four) || (kind2 == .cue && kind1 == .four) {
-            let four = (kind1 == .four) ? ball1 : ball2
-            let fourIndex = (kind1 == .four) ? 1 : 2
-            
-            // Freeze the 4-ball in place (but keep it dynamic so collisions still work!)
-            if let body = four.physicsBody {
-                body.velocity = .zero
-                body.angularVelocity = 0
-                // Don't set isDynamic = false! This prevents future collision detection
-                // Instead, we'll set very high mass to make it "immovable" via physics
-            }
-            
-            // Apply normal cue → target damage (10 to 4-ball, 5 back to cue)
-            if fourIndex == 2 {
-                // ball1 is cue, ball2 is four
-                damage2 = 10 * damageMultiplier  // Damage to the 4-ball
-                damage1 = 5 * damageMultiplier   // Damage back to cue
-            } else {
-                // ball2 is cue, ball1 is four
-                damage1 = 10 * damageMultiplier  // Damage to the 4-ball
-                damage2 = 5 * damageMultiplier   // Damage back to cue
-            }
-            
-            #if DEBUG
-            if debugEnabled {
-                print("⚔️ Cue ball hit immovable 4-ball: 4-ball takes \(fourIndex == 2 ? damage2 : damage1) damage, cue takes \(fourIndex == 2 ? damage1 : damage2) damage")
-            }
-            #endif
-        } else if kind1 == .cue && kind2 == .cue {
+        if kind1 == .cue && kind2 == .cue {
             // Two cue balls colliding - 1 damage each
             damage1 = 1 * damageMultiplier
             damage2 = 1 * damageMultiplier
@@ -358,15 +346,13 @@ final class BallDamageSystem {
         } else {
             // Non-cue to non-cue (8-ball, 11-ball, or any combination)
             // 1 damage each
-            if !(kind1 == .cue && kind2 == .four) && !(kind2 == .cue && kind1 == .four) {
-                damage1 = 1 * damageMultiplier
-                damage2 = 1 * damageMultiplier
-                #if DEBUG
-                if debugEnabled {
-                    print("⚔️ \(kind1) and \(kind2) collided for \(damage1) damage each")
-                }
-                #endif
+            damage1 = 1 * damageMultiplier
+            damage2 = 1 * damageMultiplier
+            #if DEBUG
+            if debugEnabled {
+                print("⚔️ \(kind1) and \(kind2) collided for \(damage1) damage each")
             }
+            #endif
         }
         
         // Apply damage with source tracking
@@ -529,45 +515,11 @@ final class BallDamageSystem {
         
         health.currentHP = max(0, health.currentHP - actualDamage)
 
-        // SPECIAL: 4-ball triggers full-strength pulse whenever it takes damage
+        // SPECIAL: 4-ball triggers pulse via accessory when it takes damage
         if ball.ballKind == .four && actualDamage > 0 {
-            // Freeze the 4-ball so it doesn't move (but keep it dynamic!)
-            if let body = ball.physicsBody {
-                body.velocity = .zero
-                body.angularVelocity = 0
-                // Don't set isDynamic = false! This prevents future collision detection
-                // The 4-ball stays put naturally due to its high mass and zero velocity
+            if let pulseAccessory = BallAccessoryManager.shared.getPulseAccessory(for: ball) {
+                pulseAccessory.triggerPulse(from: ball, damageSystem: self)
             }
-            
-            // Increment trigger count and check if we should destroy this 4-ball
-            health.fourBallTriggerCount += 1
-            
-            #if DEBUG
-            if debugEnabled {
-                print("🔮 4-ball trigger count: \(health.fourBallTriggerCount)/\(config.fourBallMaxTriggers)")
-            }
-            #endif
-            
-            // Check if this 4-ball has been triggered too many times
-            if health.fourBallTriggerCount >= config.fourBallMaxTriggers {
-                #if DEBUG
-                if debugEnabled {
-                    print("💀 4-ball reached max triggers (\(config.fourBallMaxTriggers)), destroying regardless of HP!")
-                }
-                #endif
-                
-                // Trigger one final pulse before destruction
-                triggerFourBallPulse(from: ball, impulse: 600)
-                
-                // Instantly destroy the 4-ball
-                health.currentHP = 0
-                handleBallDestruction(ball, health: health)
-                return  // Skip normal damage processing
-            }
-            
-            // Full strength pulse: 30 blocks radius regardless of impulse
-            // Use a synthetic impulse value to map to max (600 as used in triggerFourBallPulse)
-            triggerFourBallPulse(from: ball, impulse: 600)
         }
         
         #if DEBUG
@@ -580,10 +532,28 @@ final class BallDamageSystem {
         updateHealthBar(for: health)
         showDamageEffect(at: position, damage: actualDamage)
 
-        // Invoke per-ball damage hook (e.g., 2-ball cue duplication)
+        // Invoke per-ball damage hook (now simplified since 2-ball uses accessory)
         ball.onDamage(amount: actualDamage, source: lastDamageSource, system: self)
+        
+        // Check if ball has spawner accessory and trigger it
+        if let spawner = BallAccessoryManager.shared.getSpawnerAccessory(for: ball),
+           let source = lastDamageSource,
+           source.ballKind == .cue {
+            spawner.triggerSpawn(from: ball, source: source, damageSystem: self)
+        }
+        
         // Clear source after use
         lastDamageSource = nil
+        
+        // Check if ball has zapper accessory and trigger it
+        if BallAccessoryManager.shared.hasAccessory(ball: ball, id: "zapper") {
+            // Get the zapper accessory and trigger it
+            let accessories = BallAccessoryManager.shared.getAccessories(for: ball)
+            if let zapper = accessories.first(where: { $0.id == "zapper" }) as? ZapperAccessory,
+               let scene = scene {
+                zapper.triggerZap(from: ball, scene: scene)
+            }
+        }
         
         // Check for death
         if !health.isAlive {
@@ -1173,6 +1143,20 @@ final class BallDamageSystem {
                     continue  // Skip to next ball
                 }
                 
+                // SPECIAL CASE: Balls with explode on destroy should get instant-killed to trigger chain reaction
+                if BallAccessoryManager.shared.hasAccessory(ball: targetBall, id: "explodeOnDestroy") {
+                    #if DEBUG
+                    if debugEnabled {
+                        print("   💥💥 CHAIN REACTION! \(targetBall.ballKind) ball with explodeOnDestroy instantly destroyed!")
+                    }
+                    #endif
+                    
+                    // Instantly destroy the ball (set HP to 0)
+                    health.currentHP = 0
+                    handleBallDestruction(targetBall, health: health)
+                    continue  // Skip to next ball
+                }
+                
                 // Get the visual container and extract blocks
                 guard let visualContainer = targetBall.children.first(where: { $0.name == "ballVisual" }) else {
                     continue
@@ -1344,146 +1328,15 @@ final class BallDamageSystem {
         block.removeFromParent()
     }
 
-    // MARK: - Four Ball Special: Pulse and disintegration
-    /// Triggered only when a cue ball collides with a 4-ball. The 4-ball does not move.
-    /// Creates a colorful translucent pulse circle with a configurable radius.
-    /// Any balls (by center) within that radius are instantly disintegrated with a unique animation.
-    private func triggerFourBallPulse(from fourBall: BlockBall, impulse: CGFloat) {
-        guard let scene = scene else { return }
-        // Determine block size based on other effects (reuse 5.0 default)
-        let blockSize: CGFloat = 5.0
-        // Use configurable radius from config
-        let blocksRadius: CGFloat = config.fourBallDamageRadius
-        let radius = blocksRadius * blockSize
-        let center = fourBall.position
-        
-        // Visual: colorful changing translucent circle that expands to radius
-        // INNER RING (main effect) - intensity adjusted for radius size
-        let ring = SKShapeNode(circleOfRadius: 8)
-        ring.position = center
-        ring.zPosition = 3500
-        ring.lineWidth = 7.0  // Line width adjusted for visibility
-        ring.fillColor = SKColor.clear
-        ring.strokeColor = SKColor.systemPurple
-        ring.alpha = 0.7  // Moderate intensity
-        scene.addChild(ring)
-        
-        // OUTER RING (secondary effect for double-ring look)
-        let outerRing = SKShapeNode(circleOfRadius: 8)
-        outerRing.position = center
-        outerRing.zPosition = 3499  // Just behind main ring
-        outerRing.lineWidth = 4.5  // Reduced from 6.0
-        outerRing.fillColor = SKColor.clear
-        outerRing.strokeColor = SKColor.systemPurple.withAlphaComponent(0.3)  // Reduced from 0.4
-        outerRing.alpha = 0.5  // Reduced from 0.6
-        scene.addChild(outerRing)
-        
-        // Color cycle action (slightly less intense for larger radius)
-        let colors: [SKColor] = [
-            SKColor(red: 0.5, green: 0.0, blue: 0.9, alpha: 1.0),  // Purple (slightly muted)
-            SKColor(red: 0.9, green: 0.0, blue: 0.7, alpha: 1.0),  // Pink (slightly muted)
-            SKColor(red: 0.0, green: 0.9, blue: 0.9, alpha: 1.0),  // Cyan (slightly muted)
-            SKColor(red: 0.9, green: 0.0, blue: 0.9, alpha: 1.0),  // Magenta (slightly muted)
-            SKColor(red: 0.9, green: 0.4, blue: 0.0, alpha: 1.0),  // Orange (slightly muted)
-            SKColor(red: 0.3, green: 0.3, blue: 0.9, alpha: 1.0),  // Blue
-            SKColor(red: 0.6, green: 0.0, blue: 0.9, alpha: 1.0)   // Purple
-        ]
-        let wait = SKAction.wait(forDuration: 0.05)  // Slightly slower cycle (was 0.04)
-        var sequence: [SKAction] = []
-        for color in colors {
-            let setColor = SKAction.run { [weak ring, weak outerRing] in
-                ring?.strokeColor = color
-                // Outer ring uses a dimmed version of the same color
-                outerRing?.strokeColor = color.withAlphaComponent(0.3)  // Reduced from 0.4
-            }
-            sequence.append(setColor)
-            sequence.append(wait)
-        }
-        let cycle = SKAction.sequence(sequence)
-        let repeatCycle = SKAction.repeatForever(cycle)
-        ring.run(repeatCycle)
-        outerRing.run(repeatCycle)
-        
-        // Expand and fade (duration adjusted for radius)
-        let expand = SKAction.scale(to: radius / 8.0, duration: 0.55)
-        expand.timingMode = .easeOut
-        let fade = SKAction.fadeOut(withDuration: 0.55)
-        let group = SKAction.group([expand, fade])
-        let remove = SKAction.removeFromParent()
-        ring.run(SKAction.sequence([group, remove]))
-        
-        // Outer ring expands slightly faster and larger for trailing effect
-        let outerExpand = SKAction.scale(to: (radius / 8.0) * 1.15, duration: 0.6)
-        outerExpand.timingMode = .easeOut
-        let outerFade = SKAction.fadeOut(withDuration: 0.6)
-        let outerGroup = SKAction.group([outerExpand, outerFade])
-        outerRing.run(SKAction.sequence([outerGroup, remove]))
-        
-        // Determine targets to disintegrate by center distance
-        // EXCLUDE cue balls - 4-ball pulse only affects enemy balls
-        // Effects drop off rapidly after radius, ending completely 5 pixels past
-        let maxEffectRadius = radius + 5.0
-        var victims: [(ball: BlockBall, distance: CGFloat)] = []
-        
-        for (_, health) in ballHealthMap {
-            guard let target = health.ball, target !== fourBall, health.isAlive else { continue }
-            
-            // Skip cue balls - they are immune to 4-ball pulse
-            if target.ballKind == .cue {
-                continue
-            }
-            
-            let dx = target.position.x - center.x
-            let dy = target.position.y - center.y
-            let dist = hypot(dx, dy)
-            
-            // Only affect balls within max effect radius
-            if dist <= maxEffectRadius {
-                victims.append((ball: target, distance: dist))
-            }
-        }
-        
-        // Apply special disintegration animation and kill them
-        // Balls within core radius get instant kill
-        // Balls in falloff zone (radius to radius+5) get scaled effects
-        for victim in victims {
-            let distance = victim.distance
-            
-            if distance <= radius {
-                // Core zone: full disintegration effect and instant kill
-                performDisintegrationAnimation(on: victim.ball, intensity: 1.0)
-                if let health = ballHealthMap[ObjectIdentifier(victim.ball)] {
-                    health.currentHP = 0
-                    handleBallDestruction(victim.ball, health: health)
-                }
-            } else {
-                // Falloff zone (radius to radius+5): rapid dropoff
-                // Calculate falloff ratio: 1.0 at radius, 0.0 at radius+5
-                let falloffDistance = distance - radius
-                let falloffRatio = 1.0 - (falloffDistance / 5.0)  // Linear dropoff over 5 pixels
-                
-                // Apply scaled disintegration effect
-                performDisintegrationAnimation(on: victim.ball, intensity: falloffRatio)
-                
-                // Apply scaled damage (not instant kill in falloff zone)
-                // At edge of core: 100 damage (instant kill)
-                // At edge of falloff: 0 damage
-                let scaledDamage = 100.0 * falloffRatio
-                if let health = ballHealthMap[ObjectIdentifier(victim.ball)] {
-                    health.currentHP = max(0, health.currentHP - scaledDamage)
-                    if health.currentHP <= 0 {
-                        handleBallDestruction(victim.ball, health: health)
-                    }
-                }
-            }
-        }
-    }
+    // MARK: - Four Ball Special: Disintegration animation
+    // NOTE: Pulse charging and triggering is now handled by PulseAccessory
+    // The damage system only provides the disintegration animation effect
     
     /// Unique disintegration animation used only by the 4-ball pulse
     /// - Parameters:
     ///   - ball: The ball to disintegrate
     ///   - intensity: Effect intensity from 0.0 to 1.0 (1.0 = full effect, lower = weaker)
-    private func performDisintegrationAnimation(on ball: BlockBall, intensity: CGFloat) {
+    func performDisintegrationAnimation(on ball: BlockBall, intensity: CGFloat) {
         guard let scene = scene else { return }
         // Convert to blocks to animate pieces
         ball.convertToBlocks()
