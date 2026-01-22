@@ -7,4 +7,7 @@
    <FileRef
       location = "group:SPAWN_VALIDATION_IMPROVEMENTS.md">
    </FileRef>
+   <FileRef
+      location = "group:BOSS_LEVEL_BUTTON_INSTRUCTIONS.md">
+   </FileRef>
 </Workspace>

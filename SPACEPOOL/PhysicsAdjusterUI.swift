@@ -22,11 +22,12 @@ class PhysicsAdjusterUI {
     
     private var onResetRequested: (() -> Void)?
     private var onRestartRequested: (() -> Void)?
+    private var onBossLevelRequested: (() -> Void)?
     
     // Toggle buttons for debug features
     private var healthBarsEnabled: Bool = false
     private var damageNumbersEnabled: Bool = false
-    private var hatsEnabled: Bool = true  // Hats enabled by default
+    private var hatsEnabled: Bool = false  // Hats disabled by default
     private var healthBarsToggle: SKShapeNode?
     private var damageNumbersToggle: SKShapeNode?
     private var hatsToggle: SKShapeNode?
@@ -79,7 +80,7 @@ class PhysicsAdjusterUI {
         // General gameplay settings
         static let damageMultiplier: CGFloat = 1.0
         static let maxImpulse: CGFloat = 150.0
-        static let threeBallMass: CGFloat = 1.0
+        static let threeBallMass: CGFloat = 10.0  // 10× heavier by default
         static let maxShotDistance: CGFloat = 119.6  // 15% longer than previous 104
         static let powerExponent: CGFloat = 1.5
         
@@ -99,7 +100,7 @@ class PhysicsAdjusterUI {
         // Visual/debug settings
         static let healthBarsEnabled: Bool = false
         static let damageNumbersEnabled: Bool = false
-        static let hatsEnabled: Bool = true
+        static let hatsEnabled: Bool = false
         
         // Accessory settings
         static let pulseDamageRadius: CGFloat = 18.0
@@ -405,6 +406,14 @@ class PhysicsAdjusterUI {
         damageNumbersEnabled = DefaultValue.damageNumbersEnabled
         hatsEnabled = DefaultValue.hatsEnabled
         
+        // Apply hats setting to accessory manager immediately
+        BallAccessoryManager.shared.setHatsEnabled(hatsEnabled)
+        
+        // Apply to all existing cue balls
+        if let scene = scene as? StarfieldScene {
+            scene.updateHatsOnAllCueBalls()
+        }
+        
         // Apply defaults to scene immediately
         applyLoadedSettings()
         
@@ -427,6 +436,10 @@ class PhysicsAdjusterUI {
     
     func onRestart(_ action: @escaping () -> Void) {
         self.onRestartRequested = action
+    }
+    
+    func onBossLevel(_ action: @escaping () -> Void) {
+        self.onBossLevelRequested = action
     }
     
     /// Apply loaded settings to all balls (called after applyPhysicsToAllBalls)
@@ -743,6 +756,17 @@ class PhysicsAdjusterUI {
                 if reset.contains(locInContent) {
                     // Reset to defaults
                     resetToDefaults()
+                    // Hide overlay after action
+                    toggleVisibility()
+                    return true
+                }
+            }
+            
+            // Check boss level button tap (in contentNode)
+            if let bossButton = contentNode.childNode(withName: "//bossLevelButton") as? SKShapeNode {
+                if bossButton.contains(locInContent) {
+                    // Trigger boss level
+                    onBossLevelRequested?()
                     // Hide overlay after action
                     toggleVisibility()
                     return true
@@ -1459,6 +1483,28 @@ class PhysicsAdjusterUI {
         resetLabel.position = .zero
         resetLabel.zPosition = 2
         resetButton.addChild(resetLabel)
+        
+        yGameplay -= restartButtonHeight + 10  // Space after button
+        
+        // Boss Level Button (purple) - directly below Reset to Defaults button
+        let bossButton = SKShapeNode(rectOf: CGSize(width: restartButtonWidth, height: restartButtonHeight), cornerRadius: 8)
+        bossButton.name = "bossLevelButton"
+        bossButton.fillColor = SKColor(red: 1.0, green: 0.3, blue: 0.3, alpha: 1.0)  // Red for boss level
+        bossButton.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        bossButton.lineWidth = 2
+        bossButton.position = CGPoint(x: gameplayX, y: yGameplay - restartButtonHeight/2)
+        bossButton.zPosition = 1
+        contentNode.addChild(bossButton)
+
+        let bossLabel = SKLabelNode(fontNamed: "Courier-Bold")
+        bossLabel.text = "🎮 Boss Level"
+        bossLabel.fontSize = 13
+        bossLabel.fontColor = .white
+        bossLabel.verticalAlignmentMode = .center
+        bossLabel.horizontalAlignmentMode = .center
+        bossLabel.position = .zero
+        bossLabel.zPosition = 2
+        bossButton.addChild(bossLabel)
         
         yGameplay -= restartButtonHeight + 15  // Space after button
         

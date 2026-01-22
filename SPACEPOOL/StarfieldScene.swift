@@ -131,6 +131,13 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     private var obstacleNodes: [SKNode] = []
     private var isTransitioningLevel: Bool = false
     
+    // MARK: - Boss Level State
+    private var isBossLevel: Bool = false
+    private var bossLevelTimer: TimeInterval = 0
+    private let bossLevelDuration: TimeInterval = 10.0
+    private var bossLevelTimerLabel: SKLabelNode?
+    private var forceBossLevelNext: Bool = false  // Flag to force next level to be boss level
+    
     // MARK: - Feature Flags
     let useBlockTablePrototype: Bool = true
     
@@ -339,6 +346,12 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             self.restartGame()
         }
         
+        physicsAdjusterUI?.onBossLevel { [weak self] in
+            guard let self = self else { return }
+            // Complete current level and load boss level next
+            self.triggerBossLevel()
+        }
+        
         physicsAdjusterUI?.createToggleButton()
         
         // Apply saved settings after initialization
@@ -465,6 +478,31 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         startTitleAnimation()
         
         print("🔄 Game restarted: returned to title screen (level 1, score 0)")
+    }
+    
+    private func triggerBossLevel() {
+        print("🎮 Boss level button pressed - completing current level...")
+        
+        // Set flag to force next level to be a boss level
+        forceBossLevelNext = true
+        
+        // If we're currently on the title screen or in transition, just advance level
+        guard !isTransitioningLevel else {
+            print("⚠️ Already transitioning levels")
+            return
+        }
+        
+        // Check if we're on a table (not title screen)
+        guard !poolTableNodes.isEmpty else {
+            print("📋 On title screen - advancing to boss level")
+            gameStateManager.advanceToNextLevel()
+            displayLevelAndScore()
+            return
+        }
+        
+        // Complete the current level and trigger transition
+        print("✅ Completing current level and preparing boss level...")
+        handleLevelComplete()
     }
     
     // Helper function to apply physics changes to all active balls
@@ -725,22 +763,30 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         let levelNumber = gameStateManager.currentLevel
         print("🎮 Loading current level: \(levelNumber)")
         
-        // Build the table
-        self.drawBlockTable()
-        
-        // Initialize cue ball controller if needed
-        if cueBallController == nil, let feltRect = blockFeltRect {
-            cueBallController = CueBallController(scene: self, tableFrameRect: feltRect)
-            print("🎮 CueBallController initialized")
-        }
-        
-        // Perform entrance transition (fade in the new table)
-        performEntranceTransition { [weak self] in
-            guard let self = self else { return }
-            print("✨ Level \(levelNumber) entrance transition complete!")
+        // Check if this is a boss level (every 10th level OR manually triggered)
+        if levelNumber % 10 == 0 || forceBossLevelNext {
+            print("👹 BOSS LEVEL!")
+            forceBossLevelNext = false  // Reset flag after using it
+            setupBossLevel()
+        } else {
+            // Regular table level
+            // Build the table
+            self.drawBlockTable()
             
-            // Place balls AFTER the entrance transition completes
-            self.placeItemsForCurrentLevel()
+            // Initialize cue ball controller if needed
+            if cueBallController == nil, let feltRect = blockFeltRect {
+                cueBallController = CueBallController(scene: self, tableFrameRect: feltRect)
+                print("🎮 CueBallController initialized")
+            }
+            
+            // Perform entrance transition (fade in the new table)
+            performEntranceTransition { [weak self] in
+                guard let self = self else { return }
+                print("✨ Level \(levelNumber) entrance transition complete!")
+                
+                // Place balls AFTER the entrance transition completes
+                self.placeItemsForCurrentLevel()
+            }
         }
     }
     
@@ -1174,6 +1220,16 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Skip expensive gameplay updates during level transitions
         if isTransitioningLevel {
             return
+        }
+        
+        // Boss level timer update
+        if isBossLevel {
+            bossLevelTimer += deltaTime
+            updateBossLevelTimer()
+            
+            if bossLevelTimer >= bossLevelDuration {
+                completeBossLevel()
+            }
         }
 
         cueBallController?.update(deltaTime: deltaTime)
@@ -2510,6 +2566,163 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         cueBallController = nil
         
         print("🧹 Level teardown complete")
+    }
+    
+    // MARK: - Boss Level Implementation
+    
+    /// Set up a boss level that plays on the starfield with screen edges as bounds
+    private func setupBossLevel() {
+        print("👹 Setting up BOSS LEVEL \(gameStateManager.currentLevel)")
+        
+        isBossLevel = true
+        bossLevelTimer = 0
+        
+        // Create screen-edge physics boundaries
+        let screenBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        blockFeltRect = screenBounds
+        
+        let edgeBody = SKPhysicsBody(edgeLoopFrom: screenBounds)
+        edgeBody.categoryBitMask = 0x1 << 1  // Same as rails
+        edgeBody.collisionBitMask = 0x1 << 0  // Collide with balls
+        edgeBody.friction = 0.1
+        edgeBody.restitution = 0.8
+        
+        // Create an invisible node to hold the edge physics
+        let edgeNode = SKNode()
+        edgeNode.physicsBody = edgeBody
+        edgeNode.zPosition = -10
+        addChild(edgeNode)
+        blockTablePhysicsNodes.append(edgeNode)
+        
+        // Display "BOSS LEVEL" title
+        displayBossLevelTitle()
+        
+        // Display countdown timer
+        displayBossLevelTimer()
+        
+        // Spawn cue ball at center of screen
+        spawnBossLevelCueBall()
+        
+        print("✅ Boss level setup complete - survive for \(Int(bossLevelDuration)) seconds!")
+    }
+    
+    /// Display a dramatic "BOSS LEVEL" title
+    private func displayBossLevelTitle() {
+        let titleLabel = SKLabelNode(fontNamed: "Courier-Bold")
+        titleLabel.text = "BOSS LEVEL"
+        titleLabel.fontSize = 48
+        titleLabel.fontColor = SKColor(red: 1.0, green: 0.3, blue: 0.3, alpha: 1.0)  // Red
+        titleLabel.position = CGPoint(x: centerPoint.x, y: size.height - 80)
+        titleLabel.horizontalAlignmentMode = .center
+        titleLabel.verticalAlignmentMode = .top
+        titleLabel.zPosition = 100
+        titleLabel.alpha = 0
+        addChild(titleLabel)
+        poolTableNodes.append(titleLabel)
+        
+        // Pulsing animation
+        let pulseUp = SKAction.scale(to: 1.1, duration: 0.5)
+        pulseUp.timingMode = .easeInEaseOut
+        let pulseDown = SKAction.scale(to: 1.0, duration: 0.5)
+        pulseDown.timingMode = .easeInEaseOut
+        let pulse = SKAction.sequence([pulseUp, pulseDown])
+        let pulseForever = SKAction.repeatForever(pulse)
+        
+        // Fade in
+        let fadeIn = SKAction.fadeIn(withDuration: 0.5)
+        
+        titleLabel.run(SKAction.group([fadeIn, pulseForever]))
+    }
+    
+    /// Display and update the boss level countdown timer
+    private func displayBossLevelTimer() {
+        bossLevelTimerLabel = SKLabelNode(fontNamed: "Courier-Bold")
+        if let label = bossLevelTimerLabel {
+            label.text = String(format: "%.1f", bossLevelDuration - bossLevelTimer)
+            label.fontSize = 36
+            label.fontColor = .white
+            label.position = CGPoint(x: centerPoint.x, y: centerPoint.y + 100)
+            label.horizontalAlignmentMode = .center
+            label.verticalAlignmentMode = .center
+            label.zPosition = 100
+            label.alpha = 0
+            addChild(label)
+            poolTableNodes.append(label)
+            
+            // Fade in
+            let fadeIn = SKAction.fadeIn(withDuration: 0.5)
+            label.run(fadeIn)
+        }
+    }
+    
+    /// Update the boss level timer display
+    private func updateBossLevelTimer() {
+        guard let label = bossLevelTimerLabel else { return }
+        
+        let remaining = max(0, bossLevelDuration - bossLevelTimer)
+        label.text = String(format: "%.1f", remaining)
+        
+        // Change color as time runs out
+        if remaining < 3.0 {
+            label.fontColor = SKColor(red: 1.0, green: 0.3, blue: 0.3, alpha: 1.0)  // Red
+        } else if remaining < 5.0 {
+            label.fontColor = SKColor(red: 1.0, green: 0.7, blue: 0.3, alpha: 1.0)  // Orange
+        }
+    }
+    
+    /// Spawn cue ball at center for boss level
+    private func spawnBossLevelCueBall() {
+        let spawnPoint = centerPoint
+        
+        // For boss levels, feltRect is the entire screen
+        let feltRect = blockFeltRect ?? CGRect(origin: .zero, size: size)
+        
+        let ball = BlockBall(
+            kind: .cue,
+            position: spawnPoint,
+            in: self,
+            feltRect: feltRect,
+            pocketCenters: [],  // No pockets in boss level
+            pocketRadius: 0
+        )
+        
+        if ball.parent == nil { addChild(ball) }
+        addCueBall(ball)
+        damageSystem?.registerBall(ball)
+        applyPhysicsToAllBalls()
+        
+        // Smooth spawn animation
+        ball.alpha = 0
+        ball.setScale(0.1)
+        
+        let fadeIn = SKAction.fadeIn(withDuration: 0.4)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.4)
+        scaleUp.timingMode = .linear
+        
+        let group = SKAction.group([fadeIn, scaleUp])
+        ball.run(group)
+        
+        print("⚪ Boss level cue ball spawned at center")
+    }
+    
+    /// Complete the boss level and advance
+    private func completeBossLevel() {
+        print("🎊 Boss level \(gameStateManager.currentLevel) SURVIVED!")
+        
+        isBossLevel = false
+        bossLevelTimer = 0
+        
+        // Freeze cue balls
+        freezeAllCueBalls()
+        
+        // Short celebration delay
+        let delay = SKAction.wait(forDuration: 1.0)
+        let advance = SKAction.run { [weak self] in
+            guard let self = self else { return }
+            self.isTransitioningLevel = true
+            self.startExitTransition()
+        }
+        run(SKAction.sequence([delay, advance]))
     }
 }
   
