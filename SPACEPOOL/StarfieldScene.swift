@@ -132,11 +132,14 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     private var isTransitioningLevel: Bool = false
     
     // MARK: - Boss Level State
-    private var isBossLevel: Bool = false
-    private var bossLevelTimer: TimeInterval = 0
-    private let bossLevelDuration: TimeInterval = 10.0
-    private var bossLevelTimerLabel: SKLabelNode?
+    internal var isBossLevel: Bool = false  // Changed to internal so FeltManager can check it
     private var forceBossLevelNext: Bool = false  // Flag to force next level to be boss level
+    
+    /// Public property for UI to check if ball spawning is allowed
+    /// Returns true if we're on a playable level (regular or boss), false if on title screen
+    public var canSpawnBalls: Bool {
+        return !poolTableNodes.isEmpty || isBossLevel
+    }
     
     // MARK: - Feature Flags
     let useBlockTablePrototype: Bool = true
@@ -1220,16 +1223,6 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Skip expensive gameplay updates during level transitions
         if isTransitioningLevel {
             return
-        }
-        
-        // Boss level timer update
-        if isBossLevel {
-            bossLevelTimer += deltaTime
-            updateBossLevelTimer()
-            
-            if bossLevelTimer >= bossLevelDuration {
-                completeBossLevel()
-            }
         }
 
         cueBallController?.update(deltaTime: deltaTime)
@@ -2575,17 +2568,28 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         print("👹 Setting up BOSS LEVEL \(gameStateManager.currentLevel)")
         
         isBossLevel = true
-        bossLevelTimer = 0
         
-        // Create screen-edge physics boundaries
+        // CRITICAL: Clear pockets completely so balls don't sink in boss levels
+        blockPocketCenters = []
+        blockPocketRadius = 0
+        
+        // CRITICAL: Set felt rect to ENTIRE screen (no margins)
         let screenBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         blockFeltRect = screenBounds
         
+        print("📐 Boss level screen bounds: \(screenBounds)")
+        print("🚫 Pockets disabled for boss level")
+        
+        // CRITICAL: Create full-screen TableGrid and FeltManager so balls don't sink
+        // This prevents balls from thinking they're over holes
+        createBossLevelFeltManager(screenBounds: screenBounds)
+        
+        // Create screen-edge physics boundaries that cover ENTIRE screen
         let edgeBody = SKPhysicsBody(edgeLoopFrom: screenBounds)
         edgeBody.categoryBitMask = 0x1 << 1  // Same as rails
         edgeBody.collisionBitMask = 0x1 << 0  // Collide with balls
         edgeBody.friction = 0.1
-        edgeBody.restitution = 0.8
+        edgeBody.restitution = 0.8  // Bouncy edges
         
         // Create an invisible node to hold the edge physics
         let edgeNode = SKNode()
@@ -2597,13 +2601,52 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Display "BOSS LEVEL" title
         displayBossLevelTitle()
         
-        // Display countdown timer
-        displayBossLevelTimer()
-        
         // Spawn cue ball at center of screen
         spawnBossLevelCueBall()
         
-        print("✅ Boss level setup complete - survive for \(Int(bossLevelDuration)) seconds!")
+        // Spawn enemy balls (starting with 1 8-ball)
+        spawnBossLevelEnemies()
+        
+        print("✅ Boss level setup complete - defeat all enemies to advance!")
+    }
+    
+    /// Create a full-screen felt manager for boss levels (prevents sinking)
+    private func createBossLevelFeltManager(screenBounds: CGRect) {
+        // Create a simple TableGrid that covers the entire screen with no holes
+        let blockSize: CGFloat = 5.0
+        let cols = Int(ceil(screenBounds.width / blockSize))
+        let rows = Int(ceil(screenBounds.height / blockSize))
+        
+        // Create invisible container node for the felt manager
+        let container = SKNode()
+        container.name = "BossLevelFeltContainer"
+        container.zPosition = -100  // Well below everything
+        addChild(container)
+        poolTableNodes.append(container)
+        
+        // Initialize TableGrid with entire screen as felt (no pockets, no rails)
+        let grid = TableGrid(
+            tableWidth: screenBounds.width,
+            tableHeight: screenBounds.height,
+            tableCenter: centerPoint,
+            feltWidth: screenBounds.width,
+            feltHeight: screenBounds.height,
+            cornerRadius: 0,
+            pocketCenters: [],  // No pockets!
+            pocketRadius: 0,
+            feltColor: .clear   // Invisible
+        )
+        
+        // Create FeltManager with the full-screen grid
+        let manager = FeltManager(tableGrid: grid, container: container)
+        
+        // Store references
+        self.tableGrid = grid
+        self.feltManager = manager
+        self.damageSystem?.feltManager = manager
+        
+        print("✅ Boss level FeltManager created - entire screen is playable surface")
+        print("   Grid: \(cols)×\(rows) cells, all felt (no holes)")
     }
     
     /// Display a dramatic "BOSS LEVEL" title
@@ -2634,39 +2677,21 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         titleLabel.run(SKAction.group([fadeIn, pulseForever]))
     }
     
-    /// Display and update the boss level countdown timer
-    private func displayBossLevelTimer() {
-        bossLevelTimerLabel = SKLabelNode(fontNamed: "Courier-Bold")
-        if let label = bossLevelTimerLabel {
-            label.text = String(format: "%.1f", bossLevelDuration - bossLevelTimer)
-            label.fontSize = 36
-            label.fontColor = .white
-            label.position = CGPoint(x: centerPoint.x, y: centerPoint.y + 100)
-            label.horizontalAlignmentMode = .center
-            label.verticalAlignmentMode = .center
-            label.zPosition = 100
-            label.alpha = 0
-            addChild(label)
-            poolTableNodes.append(label)
-            
-            // Fade in
-            let fadeIn = SKAction.fadeIn(withDuration: 0.5)
-            label.run(fadeIn)
-        }
-    }
-    
-    /// Update the boss level timer display
-    private func updateBossLevelTimer() {
-        guard let label = bossLevelTimerLabel else { return }
+    /// Spawn enemy balls for the boss level
+    private func spawnBossLevelEnemies() {
+        // For now, spawn 1 8-ball as the boss enemy
+        let enemyCount = 1
+        let ballType = BlockBall.Kind.eight
         
-        let remaining = max(0, bossLevelDuration - bossLevelTimer)
-        label.text = String(format: "%.1f", remaining)
+        print("👹 Spawning \(enemyCount) boss enemy ball(s)")
         
-        // Change color as time runs out
-        if remaining < 3.0 {
-            label.fontColor = SKColor(red: 1.0, green: 0.3, blue: 0.3, alpha: 1.0)  // Red
-        } else if remaining < 5.0 {
-            label.fontColor = SKColor(red: 1.0, green: 0.7, blue: 0.3, alpha: 1.0)  // Orange
+        for i in 0..<enemyCount {
+            // Use the public spawn API which works on boss levels
+            if spawnBall(type: ballType) {
+                print("✅ Boss enemy \(i + 1)/\(enemyCount) spawned successfully")
+            } else {
+                print("❌ Failed to spawn boss enemy \(i + 1)/\(enemyCount)")
+            }
         }
     }
     
@@ -2674,16 +2699,21 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     private func spawnBossLevelCueBall() {
         let spawnPoint = centerPoint
         
-        // For boss levels, feltRect is the entire screen
+        // CRITICAL: For boss levels, feltRect is the ENTIRE screen (no margins)
+        // This ensures the ball can reach all edges before physics boundaries stop it
         let feltRect = blockFeltRect ?? CGRect(origin: .zero, size: size)
+        
+        print("📍 Spawning boss cue ball at \(spawnPoint)")
+        print("📏 Felt rect (full screen): \(feltRect)")
+        print("🚫 Pockets: [] (disabled)")
         
         let ball = BlockBall(
             kind: .cue,
             position: spawnPoint,
             in: self,
             feltRect: feltRect,
-            pocketCenters: [],  // No pockets in boss level
-            pocketRadius: 0
+            pocketCenters: [],  // CRITICAL: No pockets in boss level
+            pocketRadius: 0     // CRITICAL: Zero pocket radius
         )
         
         if ball.parent == nil { addChild(ball) }
@@ -2702,27 +2732,89 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         let group = SKAction.group([fadeIn, scaleUp])
         ball.run(group)
         
-        print("⚪ Boss level cue ball spawned at center")
+        print("⚪ Boss level cue ball spawned at center with full-screen play area")
     }
     
-    /// Complete the boss level and advance
-    private func completeBossLevel() {
-        print("🎊 Boss level \(gameStateManager.currentLevel) SURVIVED!")
-        
-        isBossLevel = false
-        bossLevelTimer = 0
-        
-        // Freeze cue balls
-        freezeAllCueBalls()
-        
-        // Short celebration delay
-        let delay = SKAction.wait(forDuration: 1.0)
-        let advance = SKAction.run { [weak self] in
-            guard let self = self else { return }
-            self.isTransitioningLevel = true
-            self.startExitTransition()
+    // MARK: - Public Ball Spawning (for Settings Overlay / Testing)
+    
+    /// Spawn a ball of a specific type at a random valid position
+    /// This method works for both regular levels and boss levels
+    /// - Parameters:
+    ///   - ballType: The type of ball to spawn
+    ///   - customHP: Optional custom HP (nil uses default)
+    /// - Returns: True if spawn was successful
+    @discardableResult
+    public func spawnBall(type ballType: BlockBall.Kind, customHP: CGFloat? = nil) -> Bool {
+        guard let feltRect = blockFeltRect else {
+            print("❌ Cannot spawn ball - no felt rect available")
+            return false
         }
-        run(SKAction.sequence([delay, advance]))
+        
+        // Find a valid spawn point
+        guard let spawnPoint = randomSpawnPoint(minClearance: 30) else {
+            print("❌ Cannot spawn \(ballType) ball - no valid spawn point found")
+            return false
+        }
+        
+        // Get pocket data (empty arrays for boss levels)
+        let pocketCenters = blockPocketCenters ?? []
+        let pocketRadius = blockPocketRadius ?? 0
+        
+        // Create the ball
+        let ball = BlockBall(
+            kind: ballType,
+            position: spawnPoint,
+            in: self,
+            feltRect: feltRect,
+            pocketCenters: pocketCenters,
+            pocketRadius: pocketRadius
+        )
+        
+        // Add to scene if not already added
+        if ball.parent == nil {
+            addChild(ball)
+        }
+        
+        // Register with damage system
+        if let hp = customHP {
+            damageSystem?.registerBall(ball, customHP: hp)
+        } else {
+            damageSystem?.registerBall(ball)
+        }
+        
+        // Add to tracking if it's a cue ball
+        if ballType == .cue {
+            addCueBall(ball)
+        }
+        
+        // Apply physics settings
+        applyPhysicsToAllBalls()
+        
+        let levelType = isBossLevel ? "boss level" : "level \(gameStateManager.currentLevel)"
+        print("✅ Spawned \(ballType) ball at \(spawnPoint) on \(levelType)")
+        
+        return true
+    }
+    
+    /// Spawn multiple balls of a specific type
+    /// - Parameters:
+    ///   - ballType: The type of ball to spawn
+    ///   - count: Number of balls to spawn
+    ///   - customHP: Optional custom HP (nil uses default)
+    /// - Returns: Number of balls successfully spawned
+    @discardableResult
+    public func spawnBalls(type ballType: BlockBall.Kind, count: Int, customHP: CGFloat? = nil) -> Int {
+        var successCount = 0
+        for _ in 0..<count {
+            if spawnBall(type: ballType, customHP: customHP) {
+                successCount += 1
+            }
+        }
+        
+        let levelType = isBossLevel ? "boss level" : "level \(gameStateManager.currentLevel)"
+        print("✅ Spawned \(successCount)/\(count) \(ballType) balls on \(levelType)")
+        
+        return successCount
     }
 }
   

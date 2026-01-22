@@ -30,7 +30,7 @@ public final class BlockBall: SKNode {
     // Cached references for sampling
     private weak var samplingScene: SKScene?
 
-    public enum Kind {
+    public enum Kind: String {
         case cue
         case one     // Gravity ball - attracts other balls when stationary (yellow solid)
         case two     // Spawns duplicate cue ball when hit (blue solid)
@@ -313,7 +313,7 @@ public final class BlockBall: SKNode {
         case .cue:
             return  // Cue ball has no spots/stripes
         case .eight:
-            // Solid black ball with white spot
+            // Solid black ball with white spot and subtle grey outline
             initialTexture = generator.generateTexture(
                 fillColor: .black,
                 spotPosition: .centerRight,
@@ -321,7 +321,8 @@ public final class BlockBall: SKNode {
                 isStriped: false,
                 stripeColor: .white,
                 rotationX: 0,
-                rotationY: 0
+                rotationY: 0,
+                outlineColor: SKColor(white: 0.25, alpha: 1.0)
             )
         case .one:
             // Solid golden yellow ball with white spot (gravity ball)
@@ -1510,7 +1511,7 @@ public final class BlockBall: SKNode {
                 rotationY: ballRotationY
             )
         case .eight:
-            // Solid black ball with white spot
+            // Solid black ball with white spot and subtle grey outline
             newTexture = generator.generateTexture(
                 fillColor: .black,
                 spotPosition: spotPosition,
@@ -1518,7 +1519,8 @@ public final class BlockBall: SKNode {
                 isStriped: false,
                 stripeColor: .white,
                 rotationX: ballRotationX,
-                rotationY: ballRotationY
+                rotationY: ballRotationY,
+                outlineColor: SKColor(white: 0.25, alpha: 1.0)
             )
         case .nine:
             // Striped ball with vibrant golden yellow stripe

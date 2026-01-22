@@ -73,8 +73,9 @@ final class BallSpriteGenerator {
     ///   - stripeColor: The color of the stripe (only used if isStriped = true)
     ///   - rotationX: X-axis rotation in radians (for 3D stripe rendering)
     ///   - rotationY: Y-axis rotation in radians (for 3D stripe rendering)
+    ///   - outlineColor: Optional outline color for the ball's edge blocks
     /// - Returns: An SKTexture with the rendered ball
-    func generateTexture(fillColor: SKColor, spotPosition: SpotPosition, shape: BlockBall.Shape = .circle, isStriped: Bool = false, stripeColor: SKColor = .white, rotationX: CGFloat = 0, rotationY: CGFloat = 0) -> SKTexture {
+    func generateTexture(fillColor: SKColor, spotPosition: SpotPosition, shape: BlockBall.Shape = .circle, isStriped: Bool = false, stripeColor: SKColor = .white, rotationX: CGFloat = 0, rotationY: CGFloat = 0, outlineColor: SKColor? = nil) -> SKTexture {
         let size = CGSize(width: CGFloat(gridSize) * blockSize, height: CGFloat(gridSize) * blockSize)
         let renderer = UIGraphicsImageRenderer(size: size)
         
@@ -104,6 +105,29 @@ final class BallSpriteGenerator {
                     let b = abs(Int(cy))
                     return (a + b) <= Int(half)
                 }
+            }
+            
+            // Helper to check if a block is on the edge (for outline rendering)
+            func isEdgeBlock(cx: CGFloat, cy: CGFloat) -> Bool {
+                guard outlineColor != nil else { return false }
+                let half = CGFloat(gridSize - 1) / 2
+                
+                // Check if this block is included
+                guard shouldIncludeBlock(cx: cx, cy: cy) else { return false }
+                
+                // Check if any adjacent block is NOT included (making this an edge)
+                let neighbors = [
+                    (cx - 1, cy), (cx + 1, cy),  // left, right
+                    (cx, cy - 1), (cx, cy + 1),  // bottom, top
+                ]
+                
+                for (nx, ny) in neighbors {
+                    if !shouldIncludeBlock(cx: nx, cy: ny) {
+                        return true
+                    }
+                }
+                
+                return false
             }
             
             // Helper to convert 2D block coordinates to 3D point in ball's local coordinate system
@@ -181,9 +205,13 @@ final class BallSpriteGenerator {
                     let cy = CGFloat(row) - half
                     
                     if shouldIncludeBlock(cx: cx, cy: cy) {
-                        // Determine block color based on stripe/spot logic
+                        // Determine block color based on stripe/spot/outline logic
                         let blockColor: SKColor
-                        if isStriped {
+                        
+                        // Check if this is an edge block (outline)
+                        if let outline = outlineColor, isEdgeBlock(cx: cx, cy: cy) {
+                            blockColor = outline
+                        } else if isStriped {
                             blockColor = isStripeBlock3D(cx: cx, cy: cy) ? stripeColor : fillColor
                         } else if let (spotX, spotY) = spotCoords, cx == spotX && cy == spotY {
                             blockColor = .white  // This is the spot block
@@ -214,12 +242,13 @@ final class BallSpriteGenerator {
     ///   - shape: The shape of the ball
     ///   - isStriped: If true, generates striped ball textures instead of spotted
     ///   - stripeColor: The color of the stripe (only used if isStriped = true)
+    ///   - outlineColor: Optional outline color for the ball's edge blocks
     /// - Returns: Dictionary mapping spot position to texture
-    func generateAllTextures(fillColor: SKColor, shape: BlockBall.Shape = .circle, isStriped: Bool = false, stripeColor: SKColor = .white) -> [SpotPosition: SKTexture] {
+    func generateAllTextures(fillColor: SKColor, shape: BlockBall.Shape = .circle, isStriped: Bool = false, stripeColor: SKColor = .white, outlineColor: SKColor? = nil) -> [SpotPosition: SKTexture] {
         var textures: [SpotPosition: SKTexture] = [:]
         
         for position in SpotPosition.allCases {
-            textures[position] = generateTexture(fillColor: fillColor, spotPosition: position, shape: shape, isStriped: isStriped, stripeColor: stripeColor)
+            textures[position] = generateTexture(fillColor: fillColor, spotPosition: position, shape: shape, isStriped: isStriped, stripeColor: stripeColor, outlineColor: outlineColor)
         }
         
         return textures
@@ -232,13 +261,15 @@ final class BallSpriteGenerator {
     ///   - isStriped: Whether the ball has a stripe instead of a spot
     ///   - stripeColor: The color of the stripe (only used if isStriped = true)
     ///   - spotColor: The color of the spot (defaults to white)
+    ///   - outlineColor: Optional outline color for the ball's edge blocks
     /// - Returns: Dictionary mapping spot position to texture
     static func generate(fillColor: SKColor, 
                         shape: BlockBall.Shape = .circle, 
                         isStriped: Bool = false, 
-                        stripeColor: SKColor = .white) -> [SpotPosition: SKTexture] {
+                        stripeColor: SKColor = .white,
+                        outlineColor: SKColor? = nil) -> [SpotPosition: SKTexture] {
         let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: fillColor, shape: shape, isStriped: isStriped, stripeColor: stripeColor)
+        return generator.generateAllTextures(fillColor: fillColor, shape: shape, isStriped: isStriped, stripeColor: stripeColor, outlineColor: outlineColor)
     }
 }
 
@@ -253,40 +284,41 @@ extension BlockBall {
     public static let vibrantYellow = SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0)  // Rich golden yellow for 1-ball and 9-ball stripe
     
     /// Returns the visual properties (color, stripe info) for this ball kind
-    private var visualProperties: (fillColor: SKColor, isStriped: Bool, stripeColor: SKColor)? {
+    private var visualProperties: (fillColor: SKColor, isStriped: Bool, stripeColor: SKColor, outlineColor: SKColor?)? {
         switch ballKind {
         case .cue:
             return nil  // Cue ball has no spots/stripes
         case .one:
-            return (Self.vibrantYellow, false, .white)  // Vibrant golden yellow
+            return (Self.vibrantYellow, false, .white, nil)  // Vibrant golden yellow
         case .two:
-            return (.blue, false, .white)
+            return (.blue, false, .white, nil)
         case .three:
-            return (Self.lightRed, false, .white)
+            return (Self.lightRed, false, .white, nil)
         case .four:
-            return (.purple, false, .white)
+            return (.purple, false, .white, nil)
         case .five:
-            return (.orange, false, .white)
+            return (.orange, false, .white, nil)
         case .six:
-            return (Self.darkGreen, false, .white)
+            return (Self.darkGreen, false, .white, nil)
         case .seven:
-            return (Self.darkRed, false, .white)
+            return (Self.darkRed, false, .white, nil)
         case .eight:
-            return (.black, false, .white)
+            // Black 8-ball with subtle dark grey outline for visibility in starfield
+            return (.black, false, .white, SKColor(white: 0.25, alpha: 1.0))
         case .nine:
-            return (.white, true, Self.vibrantYellow)  // White with vibrant golden yellow stripe
+            return (.white, true, Self.vibrantYellow, nil)  // White with vibrant golden yellow stripe
         case .ten:
-            return (.white, true, .blue)  // White with blue stripe
+            return (.white, true, .blue, nil)  // White with blue stripe
         case .eleven:
-            return (.white, true, Self.lightRed)  // White with light red stripe
+            return (.white, true, Self.lightRed, nil)  // White with light red stripe
         case .twelve:
-            return (.white, true, .purple)  // White with purple stripe
+            return (.white, true, .purple, nil)  // White with purple stripe
         case .thirteen:
-            return (.white, true, .orange)  // White with orange stripe
+            return (.white, true, .orange, nil)  // White with orange stripe
         case .fourteen:
-            return (.white, true, Self.darkGreen)  // White with dark green stripe
+            return (.white, true, Self.darkGreen, nil)  // White with dark green stripe
         case .fifteen:
-            return (.white, true, Self.maroon)  // White with maroon stripe
+            return (.white, true, Self.maroon, nil)  // White with maroon stripe
         }
     }
     
@@ -298,7 +330,8 @@ extension BlockBall {
             fillColor: properties.fillColor,
             shape: shape,
             isStriped: properties.isStriped,
-            stripeColor: properties.stripeColor
+            stripeColor: properties.stripeColor,
+            outlineColor: properties.outlineColor
         )
         
         if let ballSprite = visualContainer.children.first(where: { $0.name == "ballSprite" }) as? SKSpriteNode,

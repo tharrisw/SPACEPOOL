@@ -99,26 +99,42 @@ class FeltManager {
     @discardableResult
     func createExplosion(at position: CGPoint, radius: CGFloat, scene: SKScene) -> Int {
         #if DEBUG
-        print("💥 Creating grid-only explosion at \(position) radius: \(radius)")
+        print("💥 Creating explosion at \(position) radius: \(radius)")
         #endif
         
-        // 1. Destroy grid cells (fast - just array updates)
-        let destroyedCount = tableGrid.destroyCellsInRadius(center: position, radius: radius, raggedness: 0.3)
+        // Check if this is a boss level
+        let isBossLevel = (scene as? StarfieldScene)?.isBossLevel ?? false
         
-        // 2. Remove scorch mark sprites within explosion radius
-        removeScorchMarksInRadius(center: position, radius: radius)
+        var destroyedCount = 0
         
-        // 3. Add scorch marks around the perimeter of the explosion
-        addScorchMarksAroundExplosion(center: position, radius: radius, scene: scene)
+        // BOSS LEVEL: Skip felt modifications but still create visual effects
+        if !isBossLevel {
+            // 1. Destroy grid cells (fast - just array updates)
+            destroyedCount = tableGrid.destroyCellsInRadius(center: position, radius: radius, raggedness: 0.3)
+            
+            // 2. Remove scorch mark sprites within explosion radius
+            removeScorchMarksInRadius(center: position, radius: radius)
+            
+            // 3. Add scorch marks around the perimeter of the explosion
+            addScorchMarksAroundExplosion(center: position, radius: radius, scene: scene)
+            
+            // 4. Rebake texture once with new holes
+            rebakeTexture()
+            
+            #if DEBUG
+            print("   🕳️ Destroyed \(destroyedCount) felt cells and added scorch marks")
+            #endif
+        } else {
+            #if DEBUG
+            print("   🚫 Skipping felt modification (boss level)")
+            #endif
+        }
         
-        // 4. Rebake texture once with new holes
-        rebakeTexture()
-        
-        // 5. Create visual debris particles for explosion effect
+        // 5. ALWAYS create visual debris particles for explosion effect (even on boss levels)
         createDebrisParticles(at: position, radius: radius, count: 30, scene: scene)
         
         #if DEBUG
-        print("✅ Grid-only explosion complete: destroyed \(destroyedCount) cells")
+        print("✅ Explosion complete: \(destroyedCount) cells destroyed, visual effects created")
         #endif
         
         return destroyedCount
@@ -227,12 +243,14 @@ class FeltManager {
     
     /// Create debris particles for visual explosion effect
     private func createDebrisParticles(at position: CGPoint, radius: CGFloat, count: Int, scene: SKScene) {
-        let feltColor = tableGrid.feltColor
+        // Use felt color for regular levels, or a visible color for boss levels
+        let isBossLevel = (scene as? StarfieldScene)?.isBossLevel ?? false
+        let debrisColor: SKColor = isBossLevel ? SKColor(red: 1.0, green: 0.4, blue: 0.1, alpha: 1.0) : tableGrid.feltColor  // Orange/red for boss levels
         let blockSize: CGFloat = 5.0
         
         for _ in 0..<count {
             // Create debris sprite (single 5x5 block)
-            let debris = SKSpriteNode(color: feltColor, size: CGSize(width: blockSize, height: blockSize))
+            let debris = SKSpriteNode(color: debrisColor, size: CGSize(width: blockSize, height: blockSize))
             debris.position = position
             debris.zPosition = 2500  // Above everything
             debris.texture?.filteringMode = .nearest
@@ -287,6 +305,11 @@ class FeltManager {
     
     /// Create a single burn mark overlay at a position with a radius, animated on overlay sprite
     func createSingeMarkOverlay(at position: CGPoint, radius: CGFloat, scene: SKScene) {
+        // BOSS LEVEL CHECK: Don't create burn marks on boss levels (no visible table)
+        if let starfieldScene = scene as? StarfieldScene, starfieldScene.isBossLevel {
+            return
+        }
+        
         // Queue this burn for overlay rendering
         let greyShade = CGFloat.random(in: 0.15...0.35)
         let alpha = CGFloat.random(in: 0.4...0.6)
@@ -303,6 +326,11 @@ class FeltManager {
     ///   - position: Current world position of the burning ball
     ///   - scene: The scene to add visual effects to
     func trackBurningBallPosition(at position: CGPoint, scene: SKScene) {
+        // BOSS LEVEL CHECK: Don't scorch felt on boss levels (no visible table)
+        if let starfieldScene = scene as? StarfieldScene, starfieldScene.isBossLevel {
+            return
+        }
+        
         // Convert world position to grid coordinates
         let (col, row) = tableGrid.worldToGrid(point: position)
         

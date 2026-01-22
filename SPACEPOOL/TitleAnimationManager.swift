@@ -33,34 +33,53 @@ final class TitleAnimationManager {
         // Fade in over 3 seconds
         let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 3.0)
         
-        // Call completion after fade-in finishes
+        // Wait at full opacity for a moment
+        let holdWait = SKAction.wait(forDuration: 1.0)
+        
+        // Fade out before completing
+        let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.5)
+        
+        // Call completion after fade-out finishes
         let complete = SKAction.run { [weak self] in
             self?.complete()
         }
 
-        let sequence = SKAction.sequence([initialWait, fadeIn, complete])
+        let sequence = SKAction.sequence([initialWait, fadeIn, holdWait, fadeOut, complete])
 
         // Run the animation on all logo blocks simultaneously
         // Only need to run completion on one block to avoid multiple calls
         if let firstBlock = logoBlocks.first {
             firstBlock.run(sequence)
-            // Run fade-in only on remaining blocks
-            let fadeSequence = SKAction.sequence([initialWait, fadeIn])
+            // Run fade sequence only on remaining blocks (without completion)
+            let fadeSequence = SKAction.sequence([initialWait, fadeIn, holdWait, fadeOut])
             logoBlocks.dropFirst().forEach { $0.run(fadeSequence) }
         }
     }
 
-    /// Skip the title animation and go directly to the game
+    /// Skip the title animation and fade out gracefully before going to the game
     func skipAnimation() {
         guard !hasCompleted else { return }
         
-        // Remove any pending actions and hide immediately
-        logoBlocks.forEach { block in
-            block.removeAllActions()
-            block.alpha = 0
+        // Remove any pending actions
+        logoBlocks.forEach { $0.removeAllActions() }
+        
+        // If logo is already visible, fade it out before completing
+        if let firstBlock = logoBlocks.first, firstBlock.alpha > 0.1 {
+            // Fade out gracefully
+            let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.5)
+            let completeAction = SKAction.run { [weak self] in
+                self?.complete()
+            }
+            let sequence = SKAction.sequence([fadeOut, completeAction])
+            
+            // Run fade-out on all blocks, but only call completion on first
+            firstBlock.run(sequence)
+            logoBlocks.dropFirst().forEach { $0.run(fadeOut) }
+        } else {
+            // Logo not visible yet, just hide immediately and complete
+            logoBlocks.forEach { $0.alpha = 0 }
+            complete()
         }
-
-        complete()
     }
 
     // MARK: - Private Methods

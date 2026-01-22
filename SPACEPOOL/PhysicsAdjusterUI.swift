@@ -1239,9 +1239,9 @@ class PhysicsAdjusterUI {
     private func handleBallPreviewTap(kindString: String) {
         guard let scene = scene as? StarfieldScene else { return }
         
-        // Check if table is visible
-        guard let tableContainer = scene.childNode(withName: "BlockTable"), !tableContainer.isHidden else {
-            print("🚫 Cannot spawn ball: table is not visible")
+        // Check if spawning is allowed (works for regular levels, boss levels, and title screen)
+        guard scene.canSpawnBalls else {
+            print("🚫 Cannot spawn ball: no active level (on title screen)")
             return
         }
         

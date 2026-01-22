@@ -8,16 +8,35 @@
 
 /* Begin PBXBuildFile section */
 		4E180DC52F21D67F0094BFD0 /* TableGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E180DC42F21D67F0094BFD0 /* TableGrid.swift */; };
+		4EC47F4B2F22C67B00CA7351 /* AI_CODEBASE_MAP.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EC47F4A2F22C67B00CA7351 /* AI_CODEBASE_MAP.md */; };
+		4EC47F5F2F22D28F00CA7351 /* PhysicsAdjusterUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC47F5E2F22D28F00CA7351 /* PhysicsAdjusterUI.swift */; };
+		4EC47F612F22D2B400CA7351 /* 8BALL_OUTLINE_AND_CACHE_RESET.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EC47F602F22D2B400CA7351 /* 8BALL_OUTLINE_AND_CACHE_RESET.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		4E180DC42F21D67F0094BFD0 /* TableGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableGrid.swift; sourceTree = "<group>"; };
 		4EC41D862F215DF4004362B3 /* SPACEPOOL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SPACEPOOL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4EC47F4A2F22C67B00CA7351 /* AI_CODEBASE_MAP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AI_CODEBASE_MAP.md; sourceTree = "<group>"; };
+		4EC47F5E2F22D28F00CA7351 /* PhysicsAdjusterUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhysicsAdjusterUI.swift; sourceTree = "<group>"; };
+		4EC47F602F22D2B400CA7351 /* 8BALL_OUTLINE_AND_CACHE_RESET.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = 8BALL_OUTLINE_AND_CACHE_RESET.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4EA3D0AC2F22D3AC003C0E4B /* Exceptions for "SPACEPOOL" folder in "SPACEPOOL" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				PhysicsAdjusterUI.swift,
+			);
+			target = 4EC41D852F215DF4004362B3 /* SPACEPOOL */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4EC41D882F215DF4004362B3 /* SPACEPOOL */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4EA3D0AC2F22D3AC003C0E4B /* Exceptions for "SPACEPOOL" folder in "SPACEPOOL" target */,
+			);
 			path = SPACEPOOL;
 			sourceTree = "<group>";
 		};
@@ -40,6 +59,9 @@
 				4EC41D882F215DF4004362B3 /* SPACEPOOL */,
 				4EC41D872F215DF4004362B3 /* Products */,
 				4E180DC42F21D67F0094BFD0 /* TableGrid.swift */,
+				4EC47F4A2F22C67B00CA7351 /* AI_CODEBASE_MAP.md */,
+				4EC47F5E2F22D28F00CA7351 /* PhysicsAdjusterUI.swift */,
+				4EC47F602F22D2B400CA7351 /* 8BALL_OUTLINE_AND_CACHE_RESET.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -118,6 +140,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EC47F612F22D2B400CA7351 /* 8BALL_OUTLINE_AND_CACHE_RESET.md in Resources */,
+				4EC47F4B2F22C67B00CA7351 /* AI_CODEBASE_MAP.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +153,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4E180DC52F21D67F0094BFD0 /* TableGrid.swift in Sources */,
+				4EC47F5F2F22D28F00CA7351 /* PhysicsAdjusterUI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

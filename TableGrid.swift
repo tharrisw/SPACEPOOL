@@ -49,13 +49,15 @@ final class TableGrid {
         feltColor: SKColor
     ) {
         // Calculate grid dimensions
-        self.cols = Int(round(tableWidth / blockSize))
-        self.rows = Int(round(tableHeight / blockSize))
+        // Use ceil instead of round to ensure we cover the entire area
+        self.cols = Int(ceil(tableWidth / blockSize))
+        self.rows = Int(ceil(tableHeight / blockSize))
         
         // Calculate origin (bottom-left)
+        // Align grid to cover the exact table area (may extend slightly beyond)
         self.origin = CGPoint(
-            x: tableCenter.x - (CGFloat(cols) * blockSize) / 2,
-            y: tableCenter.y - (CGFloat(rows) * blockSize) / 2
+            x: tableCenter.x - tableWidth / 2,
+            y: tableCenter.y - tableHeight / 2
         )
         
         self.feltColor = feltColor
@@ -108,7 +110,10 @@ final class TableGrid {
             let dx = abs(worldPoint.x - tableCenter.x)
             let dy = abs(worldPoint.y - tableCenter.y)
             
-            if dx > halfW || dy > halfH { return false }
+            // Add small epsilon for floating point tolerance (especially important for boss levels)
+            let epsilon: CGFloat = 0.1
+            
+            if dx > halfW + epsilon || dy > halfH + epsilon { return false }
             if dx <= halfW - r || dy <= halfH - r { return true }
             
             let cx = halfW - r
