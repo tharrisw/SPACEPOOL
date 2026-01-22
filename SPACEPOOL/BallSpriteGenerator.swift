@@ -248,6 +248,7 @@ extension BlockBall {
     public static let darkRed = SKColor(red: 0.6, green: 0.0, blue: 0.0, alpha: 1.0)
     public static let darkGreen = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0)
     public static let maroon = SKColor(red: 0.5, green: 0.0, blue: 0.0, alpha: 1.0)
+    public static let vibrantYellow = SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0)  // Rich golden yellow for 1-ball and 9-ball stripe
     
     /// Returns the visual properties (color, stripe info) for this ball kind
     private var visualProperties: (fillColor: SKColor, isStriped: Bool, stripeColor: SKColor)? {
@@ -255,7 +256,7 @@ extension BlockBall {
         case .cue:
             return nil  // Cue ball has no spots/stripes
         case .one:
-            return (.yellow, false, .white)
+            return (Self.vibrantYellow, false, .white)  // Vibrant golden yellow
         case .two:
             return (.blue, false, .white)
         case .three:
@@ -271,7 +272,7 @@ extension BlockBall {
         case .eight:
             return (.black, false, .white)
         case .nine:
-            return (.white, true, .yellow)  // White with yellow stripe
+            return (.white, true, Self.vibrantYellow)  // White with vibrant golden yellow stripe
         case .ten:
             return (.white, true, .blue)  // White with blue stripe
         case .eleven:

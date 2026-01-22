@@ -22,6 +22,13 @@
 		4E180DD42F21D9420094BFD0 /* BUILD_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_FIX.md; sourceTree = "<group>"; };
 		4E180DD62F21D9580094BFD0 /* QUICK_REFERENCE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = QUICK_REFERENCE.md; sourceTree = "<group>"; };
 		4EC41D862F215DF4004362B3 /* SPACEPOOL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SPACEPOOL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4EC47E902F21DFF900CA7351 /* OBSOLETE_CODE_ANALYSIS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = OBSOLETE_CODE_ANALYSIS.md; sourceTree = "<group>"; };
+		4EC47E912F21E0AB00CA7351 /* CLEANUP_COMPLETED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLEANUP_COMPLETED.md; sourceTree = "<group>"; };
+		4EC47E922F21E0D800CA7351 /* CLEANUP_SUMMARY.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLEANUP_SUMMARY.md; sourceTree = "<group>"; };
+		4EC47E932F21E1AD00CA7351 /* 11BALL_ACCESSORY_CHANGE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = 11BALL_ACCESSORY_CHANGE.md; sourceTree = "<group>"; };
+		4EC47E942F21E2AE00CA7351 /* EXPLODE_ON_DESTROY_BUG_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = EXPLODE_ON_DESTROY_BUG_FIX.md; sourceTree = "<group>"; };
+		4EC47E952F21E3AA00CA7351 /* SPAWN_VALIDATION_DEBUG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SPAWN_VALIDATION_DEBUG.md; sourceTree = "<group>"; };
+		4EC47E962F22633500CA7351 /* YELLOW_BALL_COLOR_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = YELLOW_BALL_COLOR_FIX.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -58,6 +65,13 @@
 				4E180DD22F21D8AE0094BFD0 /* INTEGRATION_CHECKLIST.md */,
 				4E180DD42F21D9420094BFD0 /* BUILD_FIX.md */,
 				4E180DD62F21D9580094BFD0 /* QUICK_REFERENCE.md */,
+				4EC47E902F21DFF900CA7351 /* OBSOLETE_CODE_ANALYSIS.md */,
+				4EC47E912F21E0AB00CA7351 /* CLEANUP_COMPLETED.md */,
+				4EC47E922F21E0D800CA7351 /* CLEANUP_SUMMARY.md */,
+				4EC47E932F21E1AD00CA7351 /* 11BALL_ACCESSORY_CHANGE.md */,
+				4EC47E942F21E2AE00CA7351 /* EXPLODE_ON_DESTROY_BUG_FIX.md */,
+				4EC47E952F21E3AA00CA7351 /* SPAWN_VALIDATION_DEBUG.md */,
+				4EC47E962F22633500CA7351 /* YELLOW_BALL_COLOR_FIX.md */,
 			);
 			sourceTree = "<group>";
 		};

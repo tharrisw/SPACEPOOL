@@ -139,7 +139,7 @@ public final class BlockBall: SKNode {
     private let pocketRadius: CGFloat
 
     #if DEBUG
-        private let debugEnabled: Bool = true
+        private let debugEnabled: Bool = false
     #else
         private let debugEnabled: Bool = false
     #endif
@@ -347,9 +347,10 @@ public final class BlockBall: SKNode {
             _ = attachAccessory("flying")
         }
         
-        // Attach explode on contact accessory to 11-balls
+        // Attach explode on destroy accessory to 11-balls
+        // (explodes when HP reaches 0, creating a crater)
         if kind == .eleven {
-            _ = attachAccessory("explodeOnContact")
+            _ = attachAccessory("explodeOnDestroy")
         }
         
         // 7-balls will get burning accessory after first movement (see update method)
@@ -434,9 +435,9 @@ public final class BlockBall: SKNode {
                 rotationY: 0
             )
         case .one:
-            // Solid yellow ball with white spot (gravity ball)
+            // Solid golden yellow ball with white spot (gravity ball)
             initialTexture = generator.generateTexture(
-                fillColor: .yellow,
+                fillColor: SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0),
                 spotPosition: .centerRight,
                 shape: shape,
                 isStriped: false,
@@ -522,13 +523,13 @@ public final class BlockBall: SKNode {
                 rotationY: 0
             )
         case .nine:
-            // Striped ball with yellow stripe
+            // Striped ball with vibrant golden yellow stripe
             initialTexture = generator.generateTexture(
                 fillColor: .white,
                 spotPosition: .centerRight,
                 shape: shape,
                 isStriped: true,
-                stripeColor: .yellow,
+                stripeColor: SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0),
                 rotationX: 0,
                 rotationY: 0
             )
@@ -612,7 +613,7 @@ public final class BlockBall: SKNode {
         case .cue:
             fillColor = SKColor(white: 1.0, alpha: 1.0)
         case .one:
-            fillColor = SKColor.yellow
+            fillColor = SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0)  // Vibrant golden yellow
         case .two:
             fillColor = SKColor.blue
         case .three:
@@ -1333,16 +1334,8 @@ public final class BlockBall: SKNode {
 
     // MARK: - Pocket support sampling
     
-    // PERFORMANCE OPTIMIZATION: Cache felt rect for faster geometric checks
-    private var cachedFeltRect: CGRect?
-    
     private func unsupportedFractionUnderBall() -> CGFloat {
         guard let scene = samplingScene ?? sceneRef ?? self.scene else { return 0 }
-        
-        // Use cached felt rect if available for fast geometric check
-        if cachedFeltRect == nil {
-            cachedFeltRect = feltRect
-        }
         
         // Sample points around the lower semicircle footprint of the ball
         let samples = max(3, supportSampleRays)
@@ -1402,22 +1395,9 @@ public final class BlockBall: SKNode {
             return feltManager.isFelt(at: point)
         }
         
-        // Fallback: old geometric checks (if grid not available)
-        if let feltRect = cachedFeltRect {
-            if !feltRect.contains(point) {
-                return false  // Outside felt bounds = not felt
-            }
-        }
-        
-        // Check if in a pocket with distance formula (expensive!)
-        for pocketCenter in pocketCenters {
-            let distanceToPocket = hypot(point.x - pocketCenter.x, point.y - pocketCenter.y)
-            if distanceToPocket <= pocketRadius {
-                return false  // Definitely over a pocket
-            }
-        }
-        
-        return true  // Within felt bounds and not over pocket
+        // Grid not available - this should never happen in production
+        assertionFailure("Grid-based detection unavailable in isFeltBlock - feltManager is nil")
+        return false
     }
     
     /// Public method to check if the ball is currently over a pocket
@@ -1431,14 +1411,8 @@ public final class BlockBall: SKNode {
             return feltManager.isHole(at: position)
         }
         
-        // Fallback: geometric check
-        for pocketCenter in pocketCenters {
-            let distanceToPocket = hypot(position.x - pocketCenter.x, position.y - pocketCenter.y)
-            if distanceToPocket <= pocketRadius + ballRadius {
-                return true
-            }
-        }
-        
+        // Grid not available - this should never happen in production
+        assertionFailure("Grid-based detection unavailable in isOverPocket - feltManager is nil")
         return false
     }
 
@@ -1578,9 +1552,9 @@ public final class BlockBall: SKNode {
         case .cue:
             return  // Cue ball has no spots/stripes
         case .one:
-            // Solid yellow ball with white spot (gravity ball)
+            // Solid golden yellow ball with white spot (gravity ball)
             newTexture = generator.generateTexture(
-                fillColor: .yellow,
+                fillColor: SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0),
                 spotPosition: spotPosition,
                 shape: shape,
                 isStriped: false,
@@ -1666,13 +1640,13 @@ public final class BlockBall: SKNode {
                 rotationY: ballRotationY
             )
         case .nine:
-            // Striped ball with yellow stripe
+            // Striped ball with vibrant golden yellow stripe
             newTexture = generator.generateTexture(
                 fillColor: .white,
                 spotPosition: spotPosition,
                 shape: shape,
                 isStriped: true,
-                stripeColor: .yellow,
+                stripeColor: SKColor(red: 1.0, green: 0.85, blue: 0.0, alpha: 1.0),
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )

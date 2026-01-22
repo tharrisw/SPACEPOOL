@@ -919,7 +919,7 @@ class PhysicsAdjusterUI {
         // Ball types to display (sorted in ascending order)
         let ballTypes: [(kind: BlockBall.Kind, name: String, color: SKColor, isStriped: Bool, stripeColor: SKColor?)] = [
             (.cue, "Cue", SKColor(white: 1.0, alpha: 1.0), false, nil),
-            (.one, "1-Ball", .yellow, false, nil),
+            (.one, "1-Ball", BlockBall.vibrantYellow, false, nil),
             (.two, "2-Ball", .blue, false, nil),
             (.three, "3-Ball", BlockBall.lightRed, false, nil),
             (.four, "4-Ball", .purple, false, nil),
@@ -927,7 +927,7 @@ class PhysicsAdjusterUI {
             (.six, "6-Ball", BlockBall.darkGreen, false, nil),
             (.seven, "7-Ball", BlockBall.darkRed, false, nil),
             (.eight, "8-Ball", .black, false, nil),
-            (.nine, "9-Ball", .white, true, .yellow),
+            (.nine, "9-Ball", .white, true, BlockBall.vibrantYellow),
             (.ten, "10-Ball", .white, true, .blue),
             (.eleven, "11-Ball", .white, true, BlockBall.lightRed),
             (.twelve, "12-Ball", .white, true, .purple),

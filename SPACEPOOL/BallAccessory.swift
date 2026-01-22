@@ -1322,6 +1322,8 @@ final class BallAccessoryManager {
             accessory = TempBurningAccessory()
         case "explodeOnContact":
             accessory = ExplodeOnContactAccessory()
+        case "explodeOnDestroy":
+            accessory = ExplodeOnDestroyAccessory()
         case "hat_topHat":
             accessory = HatAccessory(style: .topHat)
         case "hat_bowler":

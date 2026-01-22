@@ -1979,31 +1979,60 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     }
     
     private func isValidSpawnPoint(_ p: CGPoint, minClearance: CGFloat) -> Bool {
+        #if DEBUG
+        print("🔍 Checking spawn point validity: \(p)")
+        #endif
+        
         // Must be inside felt bounds
-        guard let felt = blockFeltRect else { return false }
-        if !felt.insetBy(dx: minClearance, dy: minClearance).contains(p) { return false }
+        guard let felt = blockFeltRect else { 
+            #if DEBUG
+            print("   ❌ No felt rect")
+            #endif
+            return false 
+        }
+        if !felt.insetBy(dx: minClearance, dy: minClearance).contains(p) { 
+            #if DEBUG
+            print("   ❌ Outside felt bounds (with clearance)")
+            #endif
+            return false 
+        }
         
         // ✅ GRID-BASED HOLE CHECK: Use TableGrid for O(1) hole detection
         if let feltManager = feltManager {
             // Check if spawn point is over a hole (pocket or destroyed felt)
-            if feltManager.isHole(at: p) {
+            let isHole = feltManager.isHole(at: p)
+            let isFelt = feltManager.isFelt(at: p)
+            
+            #if DEBUG
+            print("   Grid checks: isHole=\(isHole), isFelt=\(isFelt)")
+            #endif
+            
+            if isHole {
+                #if DEBUG
+                print("   ❌ Spawn point rejected: over a hole")
+                #endif
                 return false  // Can't spawn in a hole!
             }
             
             // IMPORTANT: Also check if spawn point is on valid felt
             // (not destroyed, not pocket, not rail, not empty)
-            if !feltManager.isFelt(at: p) {
+            if !isFelt {
+                #if DEBUG
+                print("   ❌ Spawn point rejected: not on felt")
+                #endif
                 return false  // Can't spawn on non-felt areas
             }
+            
+            #if DEBUG
+            print("   ✅ Passed grid checks")
+            #endif
         } else {
-            // Fallback: Old pocket check if grid not available (legacy support)
-            if let centers = blockPocketCenters, let r = blockPocketRadius {
-                for c in centers { 
-                    if hypot(p.x - c.x, p.y - c.y) <= (r + minClearance) { 
-                        return false 
-                    } 
-                }
-            }
+            // Grid not available - this should never happen in production
+            #if DEBUG
+            print("   ❌ FeltManager is nil!")
+            #endif
+            assertionFailure("Grid-based detection unavailable in spawn validation - feltManager is nil")
+            return false
         }
         
         // Check clearance from pockets (even if not directly over one)
@@ -2011,9 +2040,15 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             for c in centers { 
                 let distanceToPocket = hypot(p.x - c.x, p.y - c.y)
                 if distanceToPocket <= (r + minClearance) { 
+                    #if DEBUG
+                    print("   ❌ Too close to pocket edge (distance: \(distanceToPocket))")
+                    #endif
                     return false  // Too close to pocket edge
                 } 
             }
+            #if DEBUG
+            print("   ✅ Passed pocket clearance check")
+            #endif
         }
         
         // Not overlapping existing BlockBall nodes
@@ -2021,10 +2056,16 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         for b in existing {
             let d = hypot(p.x - b.position.x, p.y - b.position.y)
             if d < (b.frame.width/2 + minClearance) { 
+                #if DEBUG
+                print("   ❌ Too close to another ball (distance: \(d))")
+                #endif
                 return false  // Too close to another ball
             }
         }
         
+        #if DEBUG
+        print("   ✅ Valid spawn point!")
+        #endif
         return true  // Valid spawn point!
     }
 

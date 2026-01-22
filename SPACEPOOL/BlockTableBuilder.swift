@@ -27,6 +27,12 @@ class FeltManager {
     private let tableGrid: TableGrid
     private var feltTextureSprite: SKSpriteNode?
     
+    // Single overlay sprite for temporary burns (animated, then baked)
+    private var burnOverlaySprite: SKSpriteNode?
+    private var burnOverlayImage: UIImage?
+    private var burnOverlayNeedsRedraw: Bool = false
+    private var burnAnimationQueue: [(position: CGPoint, radius: CGFloat, grey: CGFloat, alpha: CGFloat)] = []
+    
     init(tableGrid: TableGrid, container: SKNode) {
         self.tableGrid = tableGrid
         self.container = container
@@ -147,6 +153,83 @@ class FeltManager {
     /// Check if world position is a hole (pocket or destroyed)
     func isHole(at worldPoint: CGPoint) -> Bool {
         return tableGrid.isHole(at: worldPoint)
+    }
+    
+    /// Create a single burn mark overlay at a position with a radius, animated on overlay sprite
+    func createSingeMarkOverlay(at position: CGPoint, radius: CGFloat, scene: SKScene) {
+        // Queue this burn for overlay rendering
+        let greyShade = CGFloat.random(in: 0.15...0.35)
+        let alpha = CGFloat.random(in: 0.4...0.6)
+        let entry = (position: position, radius: radius, grey: greyShade, alpha: alpha)
+        burnAnimationQueue.append(entry)
+        renderBurnOverlayIfNeeded(scene: scene)
+    }
+    
+    /// Ensure the single overlay sprite exists and is sized to felt
+    private func ensureBurnOverlaySprite(in scene: SKScene) {
+        guard burnOverlaySprite == nil else { return }
+        let size = tableGrid.feltRect.size
+        let sprite = SKSpriteNode(color: .clear, size: size)
+        sprite.position = CGPoint(x: tableGrid.feltRect.midX, y: tableGrid.feltRect.midY)
+        sprite.zPosition = 999
+        sprite.name = "burnOverlay"
+        sprite.texture?.filteringMode = .nearest
+        scene.addChild(sprite)
+        burnOverlaySprite = sprite
+        burnOverlayImage = nil
+        burnOverlayNeedsRedraw = true
+    }
+
+    /// Render queued burns into the overlay texture and animate
+    private func renderBurnOverlayIfNeeded(scene: SKScene) {
+        ensureBurnOverlaySprite(in: scene)
+        guard let sprite = burnOverlaySprite else { return }
+        guard !burnAnimationQueue.isEmpty else { return }
+
+        // Create or update overlay image by drawing circles
+        let size = tableGrid.feltRect.size
+        let renderer = UIGraphicsImageRenderer(size: size)
+        // Start from previous overlay to accumulate
+        let baseImage = burnOverlayImage
+        let newImage = renderer.image { ctx in
+            let cg = ctx.cgContext
+            // Draw previous overlay content
+            if let base = baseImage?.cgImage { cg.draw(base, in: CGRect(origin: .zero, size: size)) }
+            // Draw new queued burns
+            for burn in burnAnimationQueue {
+                // Convert world to texture space (points)
+                let x = burn.position.x - tableGrid.feltRect.minX
+                let y = burn.position.y - tableGrid.feltRect.minY
+                // CoreGraphics y is flipped vs SpriteKit texture; our overlay sprite is not flipped when applied,
+                // so draw using flipped transform to match SpriteKit coordinates
+                cg.saveGState()
+                cg.translateBy(x: 0, y: size.height)
+                cg.scaleBy(x: 1, y: -1)
+                let burnColor = UIColor(white: burn.grey, alpha: burn.alpha)
+                cg.setFillColor(burnColor.cgColor)
+                let rect = CGRect(x: x - burn.radius, y: y - burn.radius, width: burn.radius * 2, height: burn.radius * 2)
+                cg.fillEllipse(in: rect)
+                cg.restoreGState()
+            }
+        }
+        burnOverlayImage = newImage
+        sprite.texture = SKTexture(image: newImage)
+        sprite.texture?.filteringMode = .nearest
+
+        // Animate the overlay for a scorch effect: quick appear, slight scale, then fade
+        let appear = SKAction.fadeAlpha(to: 1.0, duration: 0.05)
+        let scaleUp = SKAction.scale(to: 1.03, duration: 0.12)
+        scaleUp.timingMode = .easeOut
+        let scaleDown = SKAction.scale(to: 1.0, duration: 0.2)
+        scaleDown.timingMode = .easeIn
+        let fade = SKAction.fadeAlpha(to: 0.0, duration: 0.35)
+        let group = SKAction.group([SKAction.sequence([scaleUp, scaleDown]), fade])
+        sprite.removeAllActions()
+        sprite.alpha = 0.0
+        sprite.run(SKAction.sequence([appear, group]))
+
+        // Clear queue after rendering
+        burnAnimationQueue.removeAll()
     }
 }
 
