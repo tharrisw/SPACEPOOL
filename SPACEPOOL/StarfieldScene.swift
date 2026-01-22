@@ -1184,7 +1184,18 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         // Update all BlockBall instances (cue and eight balls) so they can sink and animate properly
         for case let ball as BlockBall in children {
             ball.update(deltaTime: deltaTime)
+            
+            // 🔥 Track burning balls for felt scorching (just marks cells, doesn't render yet)
+            // If this ball has burning or tempBurning accessory, track its position
+            if BallAccessoryManager.shared.hasBurning(ball: ball) {
+                // Track the ball's position to mark cells for scorching
+                feltManager?.trackBurningBallPosition(at: ball.position, scene: self)
+            }
         }
+        
+        // 🔥 Batch update: Regenerate scorch texture ONCE per frame if needed
+        // This prevents juddering by avoiding per-ball texture updates
+        feltManager?.updateScorchTexture(scene: self)
     }
     
     // MARK: - Physics Contact Delegate

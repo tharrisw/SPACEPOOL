@@ -33,6 +33,29 @@ class FeltManager {
     private var burnOverlayNeedsRedraw: Bool = false
     private var burnAnimationQueue: [(position: CGPoint, radius: CGFloat, grey: CGFloat, alpha: CGFloat)] = []
     
+    // MARK: - Scorch Tracking
+    // Track which grid cells have been scorched by burning balls
+    private var scorchedCells: Set<GridCell> = []
+    private var permanentScorchSprite: SKSpriteNode?
+    private var permanentScorchImage: UIImage?
+    private var newScorchedCells: Set<GridCell> = []  // NEW: Track cells to add this frame
+    
+    // Pre-computed scorch patterns for deterministic rendering
+    private var cellScorchData: [GridCell: ScorchData] = [:]
+    
+    // Helper struct for hashable grid coordinates
+    private struct GridCell: Hashable {
+        let col: Int
+        let row: Int
+    }
+    
+    // Helper struct for deterministic scorch appearance
+    private struct ScorchData {
+        let grey: CGFloat
+        let alpha: CGFloat
+        let neighbors: [(col: Int, row: Int, grey: CGFloat, alpha: CGFloat)]
+    }
+    
     init(tableGrid: TableGrid, container: SKNode) {
         self.tableGrid = tableGrid
         self.container = container
@@ -82,10 +105,16 @@ class FeltManager {
         // 1. Destroy grid cells (fast - just array updates)
         let destroyedCount = tableGrid.destroyCellsInRadius(center: position, radius: radius, raggedness: 0.3)
         
-        // 2. Rebake texture once with new holes
+        // 2. Remove scorch mark sprites within explosion radius
+        removeScorchMarksInRadius(center: position, radius: radius)
+        
+        // 3. Add scorch marks around the perimeter of the explosion
+        addScorchMarksAroundExplosion(center: position, radius: radius, scene: scene)
+        
+        // 4. Rebake texture once with new holes
         rebakeTexture()
         
-        // 3. Create visual debris particles for explosion effect
+        // 5. Create visual debris particles for explosion effect
         createDebrisParticles(at: position, radius: radius, count: 30, scene: scene)
         
         #if DEBUG
@@ -93,6 +122,107 @@ class FeltManager {
         #endif
         
         return destroyedCount
+    }
+    
+    /// Remove scorch mark sprites within explosion radius
+    private func removeScorchMarksInRadius(center: CGPoint, radius: CGFloat) {
+        guard let container = container else { return }
+        
+        // Calculate grid bounds for explosion area
+        let (centerCol, centerRow) = tableGrid.worldToGrid(point: center)
+        let radiusInBlocks = Int(ceil(radius / tableGrid.blockSize))
+        
+        var removedCount = 0
+        
+        // Check all cells in explosion bounding box
+        for dy in -radiusInBlocks...radiusInBlocks {
+            for dx in -radiusInBlocks...radiusInBlocks {
+                let col = centerCol + dx
+                let row = centerRow + dy
+                
+                // Bounds check
+                guard row >= 0 && row < tableGrid.rows && col >= 0 && col < tableGrid.cols else {
+                    continue
+                }
+                
+                // Calculate distance from explosion center
+                let cellWorld = tableGrid.gridToWorld(col: col, row: row)
+                let distance = hypot(cellWorld.x - center.x, cellWorld.y - center.y)
+                
+                // If within explosion radius, remove scorch marks
+                if distance <= radius {
+                    let cell = GridCell(col: col, row: row)
+                    
+                    // Remove from tracking set
+                    if scorchedCells.remove(cell) != nil {
+                        removedCount += 1
+                        
+                        // Remove main scorch sprite
+                        let mainSpriteName = "scorch_\(col)_\(row)"
+                        container.childNode(withName: mainSpriteName)?.removeFromParent()
+                        
+                        // Remove neighbor sprites (check all possible indices)
+                        for i in 0..<8 {
+                            let neighborSpriteName = "scorch_neighbor_\(col)_\(row)_\(i)"
+                            container.childNode(withName: neighborSpriteName)?.removeFromParent()
+                        }
+                    }
+                }
+            }
+        }
+        
+        #if DEBUG
+        if removedCount > 0 {
+            print("🧹 Removed \(removedCount) scorch marks from explosion area")
+        }
+        #endif
+    }
+    
+    /// Add scorch marks around the perimeter of an explosion
+    /// Scorches any felt blocks within explosion radius that survived (weren't destroyed)
+    private func addScorchMarksAroundExplosion(center: CGPoint, radius: CGFloat, scene: SKScene) {
+        let (centerCol, centerRow) = tableGrid.worldToGrid(point: center)
+        let radiusInBlocks = Int(ceil(radius / tableGrid.blockSize))
+        
+        var scorchedCount = 0
+        
+        // Check all cells within explosion radius
+        for dy in -radiusInBlocks...radiusInBlocks {
+            for dx in -radiusInBlocks...radiusInBlocks {
+                let col = centerCol + dx
+                let row = centerRow + dy
+                
+                // Bounds check
+                guard row >= 0 && row < tableGrid.rows && col >= 0 && col < tableGrid.cols else {
+                    continue
+                }
+                
+                // Calculate distance from explosion center
+                let cellWorld = tableGrid.gridToWorld(col: col, row: row)
+                let distance = hypot(cellWorld.x - center.x, cellWorld.y - center.y)
+                
+                // Check if within explosion radius
+                if distance <= radius {
+                    // Only scorch felt cells that SURVIVED (not destroyed)
+                    if tableGrid.grid[row][col] == .felt {
+                        let cell = GridCell(col: col, row: row)
+                        
+                        // Only add if not already scorched
+                        if !scorchedCells.contains(cell) {
+                            scorchedCells.insert(cell)
+                            createScorchSprite(for: cell, scene: scene)
+                            scorchedCount += 1
+                        }
+                    }
+                }
+            }
+        }
+        
+        #if DEBUG
+        if scorchedCount > 0 {
+            print("🔥 Added \(scorchedCount) scorch marks to blocks that survived explosion")
+        }
+        #endif
     }
     
     /// Create debris particles for visual explosion effect
@@ -165,6 +295,117 @@ class FeltManager {
         renderBurnOverlayIfNeeded(scene: scene)
     }
     
+    // MARK: - Scorch Tracking for Burning Balls
+    
+    /// Track a burning ball's position and scorch the felt if it enters a new grid cell
+    /// This creates permanent grey marks showing the ball's path across the felt
+    /// - Parameters:
+    ///   - position: Current world position of the burning ball
+    ///   - scene: The scene to add visual effects to
+    func trackBurningBallPosition(at position: CGPoint, scene: SKScene) {
+        // Convert world position to grid coordinates
+        let (col, row) = tableGrid.worldToGrid(point: position)
+        
+        // Check if this position is valid felt
+        guard row >= 0 && row < tableGrid.rows && col >= 0 && col < tableGrid.cols else {
+            return
+        }
+        
+        // Only scorch felt cells (not destroyed, pocket, or rail)
+        guard tableGrid.grid[row][col] == .felt else {
+            return
+        }
+        
+        let cell = GridCell(col: col, row: row)
+        
+        // If we haven't scorched this cell yet, create a scorch sprite for it
+        if !scorchedCells.contains(cell) {
+            scorchedCells.insert(cell)
+            
+            // Create a sprite node for this scorch mark (no texture regeneration!)
+            createScorchSprite(for: cell, scene: scene)
+            
+            #if DEBUG
+            print("🔥 Created scorch sprite at (\(col), \(row)) - total scorched: \(scorchedCells.count)")
+            #endif
+        }
+    }
+    
+    /// Create an individual sprite node for a scorch mark at a grid cell
+    /// This avoids texture regeneration and juddering
+    private func createScorchSprite(for cell: GridCell, scene: SKScene) {
+        guard let container = container else { return }
+        
+        let blockSize = tableGrid.blockSize
+        let greyShades: [CGFloat] = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
+        
+        // Use cell coordinates as seed for deterministic randomness
+        let seed = UInt64(cell.col * 73856093) ^ UInt64(cell.row * 19349663)
+        var rng = SeededRandomNumberGenerator(seed: seed)
+        
+        // Main block color
+        let mainGrey = greyShades[Int(rng.next() % UInt64(greyShades.count))]
+        let mainAlpha = CGFloat(rng.next() % 31 + 50) / 100.0 // 0.5 to 0.8
+        
+        // Get world position for this cell
+        let worldPos = tableGrid.gridToWorld(col: cell.col, row: cell.row)
+        
+        // Create main scorch block sprite
+        let scorchSprite = SKSpriteNode(color: UIColor(white: mainGrey, alpha: mainAlpha), 
+                                       size: CGSize(width: blockSize, height: blockSize))
+        scorchSprite.position = worldPos
+        scorchSprite.zPosition = 22 // Just above felt
+        scorchSprite.name = "scorch_\(cell.col)_\(cell.row)"
+        container.addChild(scorchSprite)
+        
+        // Add neighbor sprites (60% chance)
+        if rng.next() % 100 > 40 {
+            let neighborCount = Int(rng.next() % 3 + 2) // 2-4 neighbors
+            let gridOffsets: [(Int, Int)] = [
+                (-1, 0), (1, 0),   // Left, right
+                (0, 1), (0, -1),   // Up, down
+                (-1, 1), (1, 1),   // Diagonals
+                (-1, -1), (1, -1)
+            ]
+            
+            for i in 0..<min(neighborCount, gridOffsets.count) {
+                let offset = gridOffsets[Int(rng.next() % UInt64(gridOffsets.count))]
+                let neighborCol = cell.col + offset.0
+                let neighborRow = cell.row + offset.1
+                
+                // Bounds check
+                guard neighborRow >= 0 && neighborRow < tableGrid.rows &&
+                      neighborCol >= 0 && neighborCol < tableGrid.cols else {
+                    continue
+                }
+                
+                // Only scorch felt cells
+                guard tableGrid.grid[neighborRow][neighborCol] == .felt else {
+                    continue
+                }
+                
+                let neighborGrey = greyShades[Int(rng.next() % UInt64(greyShades.count))]
+                let neighborAlpha = CGFloat(rng.next() % 21 + 20) / 100.0 // 0.2 to 0.4
+                
+                let neighborWorldPos = tableGrid.gridToWorld(col: neighborCol, row: neighborRow)
+                let neighborSprite = SKSpriteNode(color: UIColor(white: neighborGrey, alpha: neighborAlpha),
+                                                  size: CGSize(width: blockSize, height: blockSize))
+                neighborSprite.position = neighborWorldPos
+                neighborSprite.zPosition = 22
+                neighborSprite.name = "scorch_neighbor_\(cell.col)_\(cell.row)_\(i)"
+                container.addChild(neighborSprite)
+            }
+        }
+    }
+    
+    /// Update the scorch texture if needed (call this once per frame, not per ball!)
+    /// With sprite-based scorching, this method is now a no-op
+    func updateScorchTexture(scene: SKScene) {
+        // No-op: We use individual sprites now, no texture updates needed
+    }
+    
+    // MARK: - Burn Overlay Methods (for temporary burn effects)
+    
     /// Ensure the single overlay sprite exists and is sized to felt
     private func ensureBurnOverlaySprite(in scene: SKScene) {
         guard burnOverlaySprite == nil else { return }
@@ -230,6 +471,22 @@ class FeltManager {
 
         // Clear queue after rendering
         burnAnimationQueue.removeAll()
+    }
+}
+
+// MARK: - Seeded Random Number Generator
+/// Deterministic RNG for consistent scorch patterns
+private struct SeededRandomNumberGenerator {
+    private var state: UInt64
+    
+    init(seed: UInt64) {
+        self.state = seed == 0 ? 1 : seed
+    }
+    
+    mutating func next() -> UInt64 {
+        // LCG algorithm
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
     }
 }
 
