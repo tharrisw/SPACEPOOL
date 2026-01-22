@@ -168,15 +168,17 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
         case .four: kindString = "FOUR"
         case .five: kindString = "FIVE"
         case .six: kindString = "SIX"
+        case .seven: kindString = "SEVEN"
         case .eight: kindString = "EIGHT"
         case .eleven: kindString = "ELEVEN"
+        @unknown default: kindString = "UNKNOWN"
         }
         print("🎱 blockBallDidSink called for \(kindString) ball")
         print("📊 Score before: \(gameStateManager.currentScore)")
         
         // Adjust score based on ball kind
         switch ball.ballKind {
-        case .one, .two, .three, .four, .five, .six, .eight, .eleven:
+        case .one, .two, .three, .four, .five, .six, .seven, .eight, .eleven:
             gameStateManager.addScore(1)
             
             let ballName: String
@@ -187,9 +189,11 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
             case .four: ballName = "Four"
             case .five: ballName = "Five"
             case .six: ballName = "Six"
+            case .seven: ballName = "Seven"
             case .eight: ballName = "Eight"
             case .eleven: ballName = "Eleven"
             case .cue: ballName = "Cue" // Won't be reached but needed for exhaustiveness
+            @unknown default: ballName = "Unknown"
             }
             
             print("✅ \(ballName) ball sank! Score +1")
@@ -253,6 +257,9 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
                 }
             }
             self.run(SKAction.sequence([delay, respawn]), withKey: "respawnCueBall")
+            
+        @unknown default:
+            print("⚠️ Unknown ball kind sank")
         }
     }
     
@@ -1206,12 +1213,44 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
 
         // Process collision if both are BlockBalls
         if let ball1 = ball1, let ball2 = ball2 {
+            // Check for burning spread BEFORE damage system handles collision
+            handleBurningSpread(between: ball1, and: ball2)
+            
             // Let the damage system handle all collision damage logic
             damageSystem?.handleCollision(
                 between: ball1,
                 and: ball2,
                 impulse: contact.collisionImpulse
             )
+        }
+    }
+    
+    /// Handle spreading of burning accessories on ball contact
+    /// - When a ball with burning or tempBurning touches another ball, that ball gets tempBurning
+    /// - 11-balls explode immediately when they get tempBurning
+    private func handleBurningSpread(between ball1: BlockBall, and ball2: BlockBall) {
+        let manager = BallAccessoryManager.shared
+        
+        // Check if ball1 has any kind of burning
+        let ball1HasBurning = manager.hasBurning(ball: ball1)
+        
+        // Check if ball2 has any kind of burning
+        let ball2HasBurning = manager.hasBurning(ball: ball2)
+        
+        // If ball1 is burning and ball2 is not, spread to ball2
+        if ball1HasBurning && !ball2HasBurning {
+            #if DEBUG
+            print("🔥 Burning spread from \(ball1.ballKind) to \(ball2.ballKind)!")
+            #endif
+            manager.attachAccessory(id: "tempBurning", to: ball2)
+        }
+        
+        // If ball2 is burning and ball1 is not, spread to ball1
+        if ball2HasBurning && !ball1HasBurning {
+            #if DEBUG
+            print("🔥 Burning spread from \(ball2.ballKind) to \(ball1.ballKind)!")
+            #endif
+            manager.attachAccessory(id: "tempBurning", to: ball1)
         }
     }
     
@@ -1936,7 +1975,7 @@ class StarfieldScene: SKScene, SKPhysicsContactDelegate, BallDamageSystemDelegat
     }
     
     private func remainingEnemyBallCount() -> Int {
-        return children.compactMap { $0 as? BlockBall }.filter { $0.ballKind == .one || $0.ballKind == .two || $0.ballKind == .three || $0.ballKind == .four || $0.ballKind == .five || $0.ballKind == .six || $0.ballKind == .eight || $0.ballKind == .eleven }.count
+        return children.compactMap { $0 as? BlockBall }.filter { $0.ballKind == .one || $0.ballKind == .two || $0.ballKind == .three || $0.ballKind == .four || $0.ballKind == .five || $0.ballKind == .six || $0.ballKind == .seven || $0.ballKind == .eight || $0.ballKind == .eleven }.count
     }
 
     private func handleLevelComplete() {

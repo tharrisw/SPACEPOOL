@@ -33,13 +33,20 @@ public final class BlockBall: SKNode {
     public enum Kind {
         case cue
         case one     // Gravity ball - attracts other balls when stationary (yellow solid)
-        case eight
-        case eleven
-        case two
-        case three
-        case four
-        case five
-        case six    // Healing ball - heals nearby cue balls when stationary (dark green solid)
+        case two     // Spawns duplicate cue ball when hit (blue solid)
+        case three   // Heavy ball - 10x mass (light red solid)
+        case four    // Immovable ball - 100x mass, deals damage on collision (purple solid)
+        case five    // Flying ball - levitates over pockets (orange solid)
+        case six     // Healing ball - heals nearby cue balls when stationary (dark green solid)
+        case seven   // Burning ball - catches fire on first movement, immune to burn damage (dark red solid)
+        case eight   // Classic 8-ball (black solid)
+        case nine    // Standard 9-ball (yellow striped)
+        case ten     // Standard 10-ball (blue striped)
+        case eleven  // Explode on contact ball - instantly explodes when hit by any ball (red striped)
+        case twelve  // Standard 12-ball (purple striped)
+        case thirteen // Standard 13-ball (orange striped)
+        case fourteen // Standard 14-ball (green striped)
+        case fifteen  // Standard 15-ball (dark red/maroon striped)
     }
     
     var ballKind: Kind { kind }
@@ -89,6 +96,13 @@ public final class BlockBall: SKNode {
     private let gravityStrength: CGFloat = 0.15  // Force applied per frame (very weak for slow attraction)
     private let gravityRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
     private var gravityFieldNode: SKShapeNode?  // Visual indicator of gravity field
+    
+    // Burning ball (7-ball) state
+    private var hasCaughtFire = false  // Track if 7-ball has caught fire yet
+    private var isBurning = false  // Track if fire is currently active
+    private var burnoutTimer: TimeInterval = 0.0  // Time spent at rest
+    private let burnoutDelay: TimeInterval = 6.0  // Seconds at rest before fire goes out
+    private let burningRestThreshold: CGFloat = 3.0  // Speed threshold to consider ball at rest
     
     // Healing ball (6-ball) state
     private var hasHealerMovedOnce = false  // Track if healer ball has moved yet
@@ -227,7 +241,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .one || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
+        if kind != .cue {
             cacheSpotTextures()
         }
 
@@ -253,6 +267,13 @@ public final class BlockBall: SKNode {
             _ = attachAccessory("flying")
         }
         
+        // Attach explode on contact accessory to 11-balls
+        if kind == .eleven {
+            _ = attachAccessory("explodeOnContact")
+        }
+        
+        // 7-balls will get burning accessory after first movement (see update method)
+        
         // Attach random hat to cue balls for cosmetic decoration (if hats are enabled)
         if kind == .cue && BallAccessoryManager.shared.areHatsEnabled() {
             _ = BallAccessoryManager.shared.attachRandomHat(to: self)
@@ -276,7 +297,7 @@ public final class BlockBall: SKNode {
         buildPhysics()
         
         // Initialize texture generator and set initial texture for numbered balls
-        if kind == .eight || kind == .one || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .five || kind == .six {
+        if kind != .cue {
             cacheSpotTextures()
         }
 
@@ -398,6 +419,17 @@ public final class BlockBall: SKNode {
                 rotationX: 0,
                 rotationY: 0
             )
+        case .seven:
+            // Solid red ball with white spot
+            initialTexture = generator.generateTexture(
+                fillColor: .red,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: 0,
+                rotationY: 0
+            )
         case .eleven:
             // Striped ball with maroon/burgundy stripe
             initialTexture = generator.generateTexture(
@@ -406,6 +438,72 @@ public final class BlockBall: SKNode {
                 shape: shape,
                 isStriped: true,
                 stripeColor: SKColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1.0),
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .nine:
+            // Striped ball with yellow stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .yellow,
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .ten:
+            // Striped ball with blue stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .blue,
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .twelve:
+            // Striped ball with purple stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .purple,
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .thirteen:
+            // Striped ball with orange stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .orange,
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .fourteen:
+            // Striped ball with dark green stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
+                rotationX: 0,
+                rotationY: 0
+            )
+        case .fifteen:
+            // Striped ball with maroon stripe
+            initialTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: .centerRight,
+                shape: shape,
+                isStriped: true,
+                stripeColor: SKColor(red: 0.5, green: 0.0, blue: 0.0, alpha: 1.0),
                 rotationX: 0,
                 rotationY: 0
             )
@@ -435,10 +533,6 @@ public final class BlockBall: SKNode {
             fillColor = SKColor(white: 1.0, alpha: 1.0)
         case .one:
             fillColor = SKColor.yellow
-        case .eight:
-            fillColor = .black
-        case .eleven:
-            fillColor = SKColor(white: 1.0, alpha: 1.0) // White base for eleven ball
         case .two:
             fillColor = SKColor.blue
         case .three:
@@ -449,6 +543,12 @@ public final class BlockBall: SKNode {
             fillColor = SKColor.orange
         case .six:
             fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0) // Dark green
+        case .seven:
+            fillColor = .red
+        case .eight:
+            fillColor = .black
+        case .nine, .ten, .eleven, .twelve, .thirteen, .fourteen, .fifteen:
+            fillColor = SKColor(white: 1.0, alpha: 1.0) // White base for striped balls
         }
 
         // Create a single texture for the ball for performance
@@ -489,10 +589,6 @@ public final class BlockBall: SKNode {
             fillColor = SKColor(white: 1.0, alpha: 1.0)
         case .one:
             fillColor = SKColor.yellow
-        case .eight:
-            fillColor = .black
-        case .eleven:
-            fillColor = SKColor(white: 1.0, alpha: 1.0)
         case .two:
             fillColor = SKColor.blue
         case .three:
@@ -503,6 +599,12 @@ public final class BlockBall: SKNode {
             fillColor = SKColor.orange
         case .six:
             fillColor = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0) // Dark green
+        case .seven:
+            fillColor = .red
+        case .eight:
+            fillColor = .black
+        case .nine, .ten, .eleven, .twelve, .thirteen, .fourteen, .fifteen:
+            fillColor = SKColor(white: 1.0, alpha: 1.0) // White base for striped balls
         }
         
         // Create individual block sprites
@@ -583,9 +685,9 @@ public final class BlockBall: SKNode {
                     let cx = CGFloat(col) - half
                     let cy = CGFloat(row) - half
                     if shouldIncludeBlock(cx: cx, cy: cy) {
-                        // For 8-ball, 1-ball, 2-ball, 3-ball, 4-ball, and 6-ball: make one off-center block white
+                        // For 8-ball, 1-ball, 2-ball, 3-ball, 4-ball, 6-ball, and 7-ball: make one off-center block white
                         // Use block at position (1, 0) which is one block right of center
-                        let isSpotBlock = ((kind == .eight || kind == .one || kind == .two || kind == .three || kind == .four || kind == .six) && cx == 1 && cy == 0)
+                        let isSpotBlock = ((kind == .eight || kind == .one || kind == .two || kind == .three || kind == .four || kind == .six || kind == .seven) && cx == 1 && cy == 0)
                         let blockColor = isSpotBlock ? SKColor.white : fillColor
                         
                         // Convert to UIKit coordinates (top-left origin)
@@ -1179,12 +1281,37 @@ public final class BlockBall: SKNode {
             // Sample a point just beneath this perimeter point
             let samplePoint = CGPoint(x: worldPoint.x, y: worldPoint.y - supportSampleDepth)
             total += 1
-            if !isFeltBlock(at: samplePoint, in: scene) {
+            let hasFelt = isFeltBlock(at: samplePoint, in: scene)
+            if !hasFelt {
                 unsupportedCount += 1
             }
+            
+            // DEBUG: Log first unsupported sample to help diagnose holes
+            #if DEBUG
+            if debugEnabled && !hasFelt && unsupportedCount == 1 {
+                // Log first unsupported sample per check
+                print("🕳️ \(ballKind) ball detecting hole: sample \(i)/\(samples) at \(samplePoint)")
+                print("   Ball position: \(position)")
+                print("   Unsupported: \(unsupportedCount)/\(total) so far")
+            }
+            #endif
         }
         if total == 0 { return 0 }
-        return CGFloat(unsupportedCount) / CGFloat(total)
+        
+        let fraction = CGFloat(unsupportedCount) / CGFloat(total)
+        
+        // DEBUG: Log when ball should sink (throttled to avoid spam)
+        #if DEBUG
+        if debugEnabled && fraction > minUnsupportedAtZeroSpeed {
+            // Log occasionally when over threshold
+            if Int.random(in: 0..<30) == 0 {
+                print("⚠️ \(ballKind) ball SHOULD sink: unsupported=\(String(format: "%.2f", fraction)), threshold=\(String(format: "%.2f", minUnsupportedAtZeroSpeed))")
+                print("   Position: \(position)")
+            }
+        }
+        #endif
+        
+        return fraction
     }
 
     private func isFeltBlock(at point: CGPoint, in scene: SKScene) -> Bool {
@@ -1195,8 +1322,7 @@ public final class BlockBall: SKNode {
             }
         }
         
-        // OPTIMIZATION: Reduce nodes(at:) calls by checking pockets first
-        // If we're near a pocket center, we're likely over a pocket
+        // Fast path: check if we're DEFINITELY in a pocket (within pocket radius)
         for pocketCenter in pocketCenters {
             let distanceToPocket = hypot(point.x - pocketCenter.x, point.y - pocketCenter.y)
             if distanceToPocket <= pocketRadius {
@@ -1204,15 +1330,39 @@ public final class BlockBall: SKNode {
             }
         }
         
-        // Only do expensive scene graph traversal as last resort
-        // Felt blocks in StarfieldScene are sprites without physics and zPosition 21
-        let nodes = scene.nodes(at: point)
-        for n in nodes {
-            if let sprite = n as? SKSpriteNode, sprite.zPosition == 21 {
-                return true
+        // CRITICAL: Check FeltManager's grid to detect explosion holes in texture mode
+        if let starfieldScene = scene as? StarfieldScene,
+           let feltManager = starfieldScene.feltManager,
+           let feltRect = cachedFeltRect {
+            // Convert world position to grid coordinates
+            let blockSize: CGFloat = 5.0
+            let col = Int((point.x - feltRect.minX) / blockSize)
+            let row = Int((point.y - feltRect.minY) / blockSize)
+            
+            // Check if this grid position has been destroyed
+            if feltManager.isGridPositionDestroyed(row: row, col: col) {
+                return false  // This felt block was destroyed by an explosion
             }
         }
-        return false
+        
+        // Check for individual blocks (hybrid mode - during explosions)
+        let nodes = scene.nodes(at: point)
+        let hasIndividualBlock = nodes.contains { node in
+            node is SKSpriteNode && node.zPosition == 22 && node.name?.hasPrefix("FeltBlock_") == true
+        }
+        
+        if hasIndividualBlock {
+            // We're in hybrid mode (explosion happening) - individual block = felt exists
+            return true
+        }
+        
+        // Check for texture sprite at zPosition 21 (normal mode)
+        let hasTexture = nodes.contains { node in
+            node is SKSpriteNode && node.zPosition == 21
+        }
+        
+        // If texture exists and we're not in a destroyed grid cell, felt is present
+        return hasTexture
     }
     
     /// Public method to check if the ball is currently over a pocket
@@ -1236,6 +1386,14 @@ public final class BlockBall: SKNode {
         
         // Check if any accessory prevents sinking
         if BallAccessoryManager.shared.preventsSinking(ball: self) {
+            #if DEBUG
+            if debugEnabled {
+                // Log occasionally to avoid spam
+                if Int.random(in: 0..<60) == 0 {
+                    print("🪽 \(ballKind) ball sink PREVENTED by accessory (flying wings)")
+                }
+            }
+            #endif
             return
         }
         
@@ -1244,8 +1402,27 @@ public final class BlockBall: SKNode {
         let requiredUnsupported = minUnsupportedAtZeroSpeed + s * (maxUnsupportedAtHighSpeed - minUnsupportedAtZeroSpeed)
         let unsupported = unsupportedFractionUnderBall()
         
+        // DEBUG: Log when we're checking for sinking (throttled)
+        #if DEBUG
+        if debugEnabled && unsupported > 0.1 {
+            // Log occasionally to avoid spam
+            if Int.random(in: 0..<60) == 0 {
+                print("🔍 \(ballKind) ball sink check:")
+                print("   speed=\(String(format: "%.1f", linearSpeed))")
+                print("   unsupported=\(String(format: "%.2f", unsupported))")
+                print("   required=\(String(format: "%.2f", requiredUnsupported))")
+                print("   will sink: \(unsupported >= requiredUnsupported)")
+            }
+        }
+        #endif
+        
         // Sink immediately when unsupported area meets threshold
         if unsupported >= requiredUnsupported {
+            #if DEBUG
+            if debugEnabled {
+                print("💧 TRIGGERING SINK for \(ballKind) ball!")
+            }
+            #endif
             triggerSink()
         }
     }
@@ -1350,28 +1527,6 @@ public final class BlockBall: SKNode {
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )
-        case .eight:
-            // Solid black ball with white spot
-            newTexture = generator.generateTexture(
-                fillColor: .black,
-                spotPosition: spotPosition,
-                shape: shape,
-                isStriped: false,
-                stripeColor: .white,
-                rotationX: ballRotationX,
-                rotationY: ballRotationY
-            )
-        case .one:
-            // Solid yellow ball with white spot (gravity ball)
-            newTexture = generator.generateTexture(
-                fillColor: .yellow,
-                spotPosition: spotPosition,
-                shape: shape,
-                isStriped: false,
-                stripeColor: .white,
-                rotationX: ballRotationX,
-                rotationY: ballRotationY
-            )
         case .two:
             // Solid blue ball with white spot
             newTexture = generator.generateTexture(
@@ -1427,14 +1582,102 @@ public final class BlockBall: SKNode {
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )
+        case .seven:
+            // Solid red ball with white spot
+            newTexture = generator.generateTexture(
+                fillColor: .red,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .eight:
+            // Solid black ball with white spot
+            newTexture = generator.generateTexture(
+                fillColor: .black,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: false,
+                stripeColor: .white,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .nine:
+            // Striped ball with yellow stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .yellow,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .ten:
+            // Striped ball with blue stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .blue,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
         case .eleven:
-            // Striped ball with maroon/burgundy stripe
+            // Striped ball with light red stripe
             newTexture = generator.generateTexture(
                 fillColor: .white,
                 spotPosition: spotPosition,
                 shape: shape,
                 isStriped: true,
                 stripeColor: SKColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1.0),
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .twelve:
+            // Striped ball with purple stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .purple,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .thirteen:
+            // Striped ball with orange stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: .orange,
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .fourteen:
+            // Striped ball with dark green stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0),
+                rotationX: ballRotationX,
+                rotationY: ballRotationY
+            )
+        case .fifteen:
+            // Striped ball with maroon stripe
+            newTexture = generator.generateTexture(
+                fillColor: .white,
+                spotPosition: spotPosition,
+                shape: shape,
+                isStriped: true,
+                stripeColor: SKColor(red: 0.5, green: 0.0, blue: 0.0, alpha: 1.0),
                 rotationX: ballRotationX,
                 rotationY: ballRotationY
             )
@@ -1570,6 +1813,47 @@ public final class BlockBall: SKNode {
             #endif
         }
         
+        // Ignite 7-ball on first movement
+        if kind == .seven && !hasCaughtFire && ls > 1.0 {
+            hasCaughtFire = true
+            isBurning = true
+            _ = attachAccessory("burning")
+            #if DEBUG
+            print("🔥 7-ball caught fire on first movement!")
+            #endif
+        }
+        
+        // Handle 7-ball burnout when at rest
+        if kind == .seven && hasCaughtFire {
+            // Check if ball is at rest
+            if ls < burningRestThreshold && angSpeed < restAngularSpeedThreshold {
+                // Ball is at rest, increment burnout timer
+                burnoutTimer += deltaTime
+                
+                // Check if fire should burn out
+                if isBurning && burnoutTimer >= burnoutDelay {
+                    isBurning = false
+                    _ = removeAccessory("burning")
+                    burnoutTimer = 0.0  // Reset timer
+                    #if DEBUG
+                    print("🔥 7-ball fire burned out after sitting still for \(burnoutDelay) seconds")
+                    #endif
+                }
+            } else {
+                // Ball is moving
+                burnoutTimer = 0.0  // Reset burnout timer
+                
+                // Reignite if not burning
+                if !isBurning {
+                    isBurning = true
+                    _ = attachAccessory("burning")
+                    #if DEBUG
+                    print("🔥 7-ball reignited after moving!")
+                    #endif
+                }
+            }
+        }
+        
         // Update gravity state for 1-ball
         if kind == .one && hasMovedOnce {
             // Check if ball is at rest
@@ -1634,7 +1918,7 @@ public final class BlockBall: SKNode {
         }
         
         // Update rolling animation for numbered balls (solid spots and striped)
-        if kind == .one || kind == .eight || kind == .two || kind == .three || kind == .eleven || kind == .four || kind == .six {
+        if kind != .cue {
             updateRollingAnimation(linearSpeed: ls, deltaTime: deltaTime)
         }
         

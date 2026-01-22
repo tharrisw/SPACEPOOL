@@ -106,14 +106,9 @@ final class BallSpriteGenerator {
                 }
             }
             
-            // Helper to check if a block should be part of the stripe using PROPER 3D rotation
-            func isStripeBlock3D(cx: CGFloat, cy: CGFloat) -> Bool {
-                // The stripe is a band around the equator at y=0 in the ball's local 3D space
-                // We need to:
-                // 1. Convert this 2D pixel position to a 3D point on the sphere
-                // 2. Apply the ball's 3D rotation (inverse)
-                // 3. Check if the rotated point is near the equator (y ≈ 0)
-                
+            // Helper to convert 2D block coordinates to 3D point in ball's local coordinate system
+            // Returns nil if the block is outside the sphere projection
+            func project2DTo3D(cx: CGFloat, cy: CGFloat) -> (x: CGFloat, y: CGFloat, z: CGFloat)? {
                 // Normalize block coordinates to -1...1 range
                 let half = CGFloat(gridSize - 1) / 2
                 let nx = cx / half  // -1 to 1
@@ -124,50 +119,7 @@ final class BallSpriteGenerator {
                 let r2 = nx * nx + ny * ny
                 if r2 > 1.0 {
                     // Outside the sphere projection
-                    return false
-                }
-                let nz = sqrt(1.0 - r2)  // Assume front hemisphere (z > 0 faces camera)
-                
-                // Now we have a 3D point (nx, ny, nz) on the sphere surface
-                // Apply INVERSE rotation to see where this point maps in the ball's local coords
-                
-                // Rotate around Y axis (inverse = negative angle)
-                let cosY = cos(-rotationY)
-                let sinY = sin(-rotationY)
-                var x1 = nx * cosY + nz * sinY
-                let z1 = -nx * sinY + nz * cosY
-                
-                // Rotate around X axis (inverse = negative angle)
-                let cosX = cos(-rotationX)
-                let sinX = sin(-rotationX)
-                let y1 = ny * cosX - z1 * sinX
-                // let z2 = ny * sinX + z1 * cosX  // Don't need final z
-                
-                // In the ball's local coordinate system, the stripe is at y ≈ 0
-                // Check if this point is within the stripe band
-                let stripeHalfWidth: CGFloat = 0.2  // About 1 block in normalized coords
-                return abs(y1) < stripeHalfWidth
-            }
-            
-            // Helper to check if a block should be the white spot using PROPER 3D rotation
-            func isSpotBlock3D(cx: CGFloat, cy: CGFloat) -> Bool {
-                // The spot is initially at position (1, 0, 0) in the ball's local 3D space (right side)
-                // We need to:
-                // 1. Convert this 2D pixel position to a 3D point on the sphere
-                // 2. Apply the ball's 3D rotation (inverse)
-                // 3. Check if the rotated point is near the spot's original position
-                
-                // Normalize block coordinates to -1...1 range
-                let half = CGFloat(gridSize - 1) / 2
-                let nx = cx / half  // -1 to 1
-                let ny = cy / half  // -1 to 1
-                
-                // Calculate z coordinate (depth into/out of screen)
-                // For a sphere: x² + y² + z² = 1
-                let r2 = nx * nx + ny * ny
-                if r2 > 1.0 {
-                    // Outside the sphere projection
-                    return false
+                    return nil
                 }
                 let nz = sqrt(1.0 - r2)  // Assume front hemisphere (z > 0 faces camera)
                 
@@ -186,16 +138,32 @@ final class BallSpriteGenerator {
                 let y1 = ny * cosX - z1 * sinX
                 let z2 = ny * sinX + z1 * cosX
                 
+                return (x1, y1, z2)
+            }
+            
+            // Helper to check if a block should be part of the stripe using PROPER 3D rotation
+            func isStripeBlock3D(cx: CGFloat, cy: CGFloat) -> Bool {
+                guard let point3D = project2DTo3D(cx: cx, cy: cy) else { return false }
+                
+                // In the ball's local coordinate system, the stripe is at y ≈ 0
+                // Check if this point is within the stripe band
+                let stripeHalfWidth: CGFloat = 0.2  // About 1 block in normalized coords
+                return abs(point3D.y) < stripeHalfWidth
+            }
+            
+            // Helper to check if a block should be the white spot using PROPER 3D rotation
+            func isSpotBlock3D(cx: CGFloat, cy: CGFloat) -> Bool {
+                guard let point3D = project2DTo3D(cx: cx, cy: cy) else { return false }
+                
                 // In the ball's local coordinate system, the spot is at (1, 0, 0)
-                // Check if this point is near that location
-                // Use a distance threshold to define the "spot area"
+                // Check if this point is near that location using distance threshold
                 let spotX: CGFloat = 1.0
                 let spotY: CGFloat = 0.0
                 let spotZ: CGFloat = 0.0
                 
-                let dx = x1 - spotX
-                let dy = y1 - spotY
-                let dz = z2 - spotZ
+                let dx = point3D.x - spotX
+                let dy = point3D.y - spotY
+                let dz = point3D.z - spotZ
                 let distance = sqrt(dx * dx + dy * dy + dz * dz)
                 
                 // Spot radius in normalized 3D space (covers about 1 block)
@@ -211,24 +179,14 @@ final class BallSpriteGenerator {
                     let cy = CGFloat(row) - half
                     
                     if shouldIncludeBlock(cx: cx, cy: cy) {
+                        // Determine block color based on stripe/spot logic
                         let blockColor: SKColor
-                        
                         if isStriped {
-                            // For striped balls: use 3D projection to determine if in stripe
-                            if isStripeBlock3D(cx: cx, cy: cy) {
-                                blockColor = stripeColor
-                            } else {
-                                blockColor = fillColor
-                            }
+                            blockColor = isStripeBlock3D(cx: cx, cy: cy) ? stripeColor : fillColor
+                        } else if let (spotX, spotY) = spotCoords, cx == spotX && cy == spotY {
+                            blockColor = .white  // This is the spot block
                         } else {
-                            // For solid balls: check if this is the spot block
-                            let isSpotBlock: Bool
-                            if let (spotX, spotY) = spotCoords {
-                                isSpotBlock = (cx == spotX && cy == spotY)
-                            } else {
-                                isSpotBlock = false  // Hidden - no spot
-                            }
-                            blockColor = isSpotBlock ? SKColor.white : fillColor
+                            blockColor = fillColor
                         }
                         
                         // Convert to UIKit coordinates (top-left origin)
@@ -265,88 +223,80 @@ final class BallSpriteGenerator {
         return textures
     }
     
-    /// Convenience method to generate textures for standard ball types
-    static func generateFor8Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
+    /// Generate textures for any ball type based on its visual properties
+    /// - Parameters:
+    ///   - fillColor: The base color of the ball
+    ///   - shape: The shape of the ball
+    ///   - isStriped: Whether the ball has a stripe instead of a spot
+    ///   - stripeColor: The color of the stripe (only used if isStriped = true)
+    ///   - spotColor: The color of the spot (defaults to white)
+    /// - Returns: Dictionary mapping spot position to texture
+    static func generate(fillColor: SKColor, 
+                        shape: BlockBall.Shape = .circle, 
+                        isStriped: Bool = false, 
+                        stripeColor: SKColor = .white) -> [SpotPosition: SKTexture] {
         let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .black, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor1Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .yellow, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor2Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .blue, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor3Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .red, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor4Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .purple, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor5Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: .orange, shape: shape, isStriped: false)
-    }
-    
-    static func generateFor6Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        return generator.generateAllTextures(fillColor: SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0), shape: shape, isStriped: false)
-    }
-    
-    static func generateFor11Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        // 11-ball is white with a red stripe
-        return generator.generateAllTextures(fillColor: .white, shape: shape, isStriped: true, stripeColor: .red)
-    }
-    
-    static func generateFor9Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        // 9-ball is yellow with a white stripe
-        return generator.generateAllTextures(fillColor: .yellow, shape: shape, isStriped: true, stripeColor: .white)
-    }
-    
-    static func generateFor10Ball(shape: BlockBall.Shape = .circle) -> [SpotPosition: SKTexture] {
-        let generator = BallSpriteGenerator()
-        // 10-ball is blue with a white stripe
-        return generator.generateAllTextures(fillColor: .blue, shape: shape, isStriped: true, stripeColor: .white)
+        return generator.generateAllTextures(fillColor: fillColor, shape: shape, isStriped: isStriped, stripeColor: stripeColor)
     }
 }
 
 // MARK: - Example Usage Extension for BlockBall
 extension BlockBall {
     
+    /// Shared color definitions for ball types (public for use in UI)
+    public static let lightRed = SKColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1.0)  // Darker red, more saturated
+    public static let darkRed = SKColor(red: 0.6, green: 0.0, blue: 0.0, alpha: 1.0)
+    public static let darkGreen = SKColor(red: 0.0, green: 0.5, blue: 0.0, alpha: 1.0)
+    public static let maroon = SKColor(red: 0.5, green: 0.0, blue: 0.0, alpha: 1.0)
+    
+    /// Returns the visual properties (color, stripe info) for this ball kind
+    private var visualProperties: (fillColor: SKColor, isStriped: Bool, stripeColor: SKColor)? {
+        switch ballKind {
+        case .cue:
+            return nil  // Cue ball has no spots/stripes
+        case .one:
+            return (.yellow, false, .white)
+        case .two:
+            return (.blue, false, .white)
+        case .three:
+            return (Self.lightRed, false, .white)
+        case .four:
+            return (.purple, false, .white)
+        case .five:
+            return (.orange, false, .white)
+        case .six:
+            return (Self.darkGreen, false, .white)
+        case .seven:
+            return (Self.darkRed, false, .white)
+        case .eight:
+            return (.black, false, .white)
+        case .nine:
+            return (.white, true, .yellow)  // White with yellow stripe
+        case .ten:
+            return (.white, true, .blue)  // White with blue stripe
+        case .eleven:
+            return (.white, true, Self.lightRed)  // White with light red stripe
+        case .twelve:
+            return (.white, true, .purple)  // White with purple stripe
+        case .thirteen:
+            return (.white, true, .orange)  // White with orange stripe
+        case .fourteen:
+            return (.white, true, Self.darkGreen)  // White with dark green stripe
+        case .fifteen:
+            return (.white, true, Self.maroon)  // White with maroon stripe
+        }
+    }
+    
     /// Update the ball sprite to show a specific spot position (useful for debugging)
     func updateSpotPosition(_ position: BallSpriteGenerator.SpotPosition) {
-        let textures: [BallSpriteGenerator.SpotPosition: SKTexture]
+        guard let properties = visualProperties else { return }
         
-        switch ballKind {
-        case .eight:
-            textures = BallSpriteGenerator.generateFor8Ball(shape: shape)
-        case .one:
-            textures = BallSpriteGenerator.generateFor1Ball(shape: shape)
-        case .two:
-            textures = BallSpriteGenerator.generateFor2Ball(shape: shape)
-        case .three:
-            textures = BallSpriteGenerator.generateFor3Ball(shape: shape)
-        case .four:
-            textures = BallSpriteGenerator.generateFor4Ball(shape: shape)
-        case .five:
-            textures = BallSpriteGenerator.generateFor5Ball(shape: shape)
-        case .six:
-            textures = BallSpriteGenerator.generateFor6Ball(shape: shape)
-        case .eleven:
-            textures = BallSpriteGenerator.generateFor11Ball(shape: shape)
-        case .cue:
-            return  // Cue ball has no spots/stripes
-        }
+        let textures = BallSpriteGenerator.generate(
+            fillColor: properties.fillColor,
+            shape: shape,
+            isStriped: properties.isStriped,
+            stripeColor: properties.stripeColor
+        )
         
         if let ballSprite = visualContainer.children.first(where: { $0.name == "ballSprite" }) as? SKSpriteNode,
            let newTexture = textures[position] {

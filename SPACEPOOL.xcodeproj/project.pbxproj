@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		4EC41EC22F21A7DC004362B3 /* FIXES_APPLIED.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */; };
+		4EEE4F4F2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md in Resources */ = {isa = PBXBuildFile; fileRef = 4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		4EC41D862F215DF4004362B3 /* SPACEPOOL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SPACEPOOL.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FIXES_APPLIED.md; sourceTree = "<group>"; };
+		4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = POCKET_SINKING_DEBUG.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,6 +42,7 @@
 				4EC41D882F215DF4004362B3 /* SPACEPOOL */,
 				4EC41D872F215DF4004362B3 /* Products */,
 				4EC41EC12F21A7DC004362B3 /* FIXES_APPLIED.md */,
+				4EEE4F4E2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -118,6 +121,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EEE4F4F2F21C8DB00371B4B /* POCKET_SINKING_DEBUG.md in Resources */,
 				4EC41EC22F21A7DC004362B3 /* FIXES_APPLIED.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

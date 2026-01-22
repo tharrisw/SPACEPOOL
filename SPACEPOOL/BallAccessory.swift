@@ -683,6 +683,552 @@ final class HatAccessory: BallAccessoryProtocol {
     }
 }
 
+/// Burning accessory - creates flame animation that damages the ball over time
+/// 7-balls are immune to burning damage
+final class BurningAccessory: BallAccessoryProtocol {
+    let id = "burning"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private var damageTimer: TimeInterval = 0
+    private let damageInterval: TimeInterval = 0.5  // Deal damage every 0.5 seconds
+    private let damageAmount: CGFloat = 1.0  // 1 HP per tick
+    
+    // Flame animation properties
+    private var flames: [SKSpriteNode] = []
+    private let blockSize: CGFloat = 5.0
+    private var animationTime: TimeInterval = 0
+    
+    // Track if this is a temporary burning (for collision spreading)
+    let isTemporary: Bool
+    
+    init(isTemporary: Bool = false) {
+        self.isTemporary = isTemporary
+    }
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Create flame animation
+        createFlameAnimation()
+        
+        // Add visual node to ball's visual container (no physics!)
+        ball.visualContainer.addChild(visualNode)
+        
+        #if DEBUG
+        print("🔥 Burning accessory attached to \(ball.ballKind) ball")
+        if ball.ballKind == .seven {
+            print("   (7-ball is immune to burning damage)")
+        }
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        visualNode.removeFromParent()
+        flames.removeAll()
+        self.ball = nil
+        
+        #if DEBUG
+        print("🔥 Burning accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // Animate the flames
+        animationTime += deltaTime
+        animateFlames(deltaTime: deltaTime)
+        
+        // Apply damage over time (except to 7-ball which is immune)
+        if ball.ballKind != .seven {
+            damageTimer += deltaTime
+            
+            if damageTimer >= damageInterval {
+                damageTimer = 0
+                
+                // Apply damage through the damage system
+                if let scene = ball.scene as? StarfieldScene,
+                   let damageSystem = scene.damageSystem {
+                    damageSystem.applyDirectDamage(to: ball, amount: damageAmount)
+                    
+                    #if DEBUG
+                    print("🔥 Burning damage: \(damageAmount) HP to \(ball.ballKind) ball")
+                    #endif
+                }
+            }
+        }
+    }
+    
+    private func createFlameAnimation() {
+        // Create multiple flame sprites at different positions
+        // Flames completely engulf the ball in all directions
+        
+        let flamePositions: [CGPoint] = [
+            // Top flames (tallest)
+            CGPoint(x: -7, y: 10),   // Top-left
+            CGPoint(x: 0, y: 12),    // Top-center (tallest)
+            CGPoint(x: 7, y: 10),    // Top-right
+            
+            // Upper-middle flames
+            CGPoint(x: -10, y: 7),   // Upper-left
+            CGPoint(x: -4, y: 8),    // Upper-mid-left
+            CGPoint(x: 4, y: 8),     // Upper-mid-right
+            CGPoint(x: 10, y: 7),    // Upper-right
+            
+            // Middle flames (around the equator)
+            CGPoint(x: -12, y: 0),   // Middle-left
+            CGPoint(x: -8, y: 2),    // Mid-left-high
+            CGPoint(x: -8, y: -2),   // Mid-left-low
+            CGPoint(x: 8, y: 2),     // Mid-right-high
+            CGPoint(x: 8, y: -2),    // Mid-right-low
+            CGPoint(x: 12, y: 0),    // Middle-right
+            
+            // Lower flames
+            CGPoint(x: -10, y: -7),  // Lower-left
+            CGPoint(x: -4, y: -6),   // Lower-mid-left
+            CGPoint(x: 0, y: -8),    // Bottom-center
+            CGPoint(x: 4, y: -6),    // Lower-mid-right
+            CGPoint(x: 10, y: -7),   // Lower-right
+            
+            // Additional back flames (smaller, dimmer)
+            CGPoint(x: -6, y: 4),    // Fill-left
+            CGPoint(x: 6, y: 4),     // Fill-right
+            CGPoint(x: -6, y: -4),   // Fill-left-low
+            CGPoint(x: 6, y: -4),    // Fill-right-low
+        ]
+        
+        for (index, position) in flamePositions.enumerated() {
+            // Center top flame (index 1) is tallest, others vary
+            let isTall = index == 1
+            let flame = createFlameSprite(tall: isTall)
+            flame.position = position
+            flame.zPosition = 5 // Above ball but below UI
+            
+            // Vary initial alpha for depth effect (flames further from camera are dimmer)
+            if index >= 19 { // Back fill flames
+                flame.alpha = 0.6
+            }
+            
+            flames.append(flame)
+            visualNode.addChild(flame)
+        }
+    }
+    
+    private func createFlameSprite(tall: Bool) -> SKSpriteNode {
+        // Create a flame texture using blocks
+        let flameWidth = 2
+        let flameHeight = tall ? 4 : 3
+        let size = CGSize(width: CGFloat(flameWidth) * blockSize, 
+                         height: CGFloat(flameHeight) * blockSize)
+        
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            let ctx = context.cgContext
+            
+            // Flame gradient: yellow at bottom, orange in middle, red at top
+            let colors: [UIColor] = [
+                UIColor(red: 1.0, green: 1.0, blue: 0.0, alpha: 0.9),  // Yellow
+                UIColor(red: 1.0, green: 0.6, blue: 0.0, alpha: 0.85), // Orange
+                UIColor(red: 1.0, green: 0.2, blue: 0.0, alpha: 0.8),  // Red-orange
+                UIColor(red: 0.8, green: 0.0, blue: 0.0, alpha: 0.7)   // Dark red
+            ]
+            
+            // Draw flame blocks from bottom to top
+            for row in 0..<flameHeight {
+                for col in 0..<flameWidth {
+                    // Taper at the top (skip some blocks)
+                    if row == flameHeight - 1 && col == 1 && !tall {
+                        continue // Skip top-right for shorter flames
+                    }
+                    
+                    let colorIndex = min(row, colors.count - 1)
+                    let color = colors[colorIndex]
+                    
+                    let x = CGFloat(col) * blockSize
+                    let y = CGFloat(row) * blockSize
+                    let rect = CGRect(x: x, y: y, width: blockSize, height: blockSize)
+                    
+                    ctx.setFillColor(color.cgColor)
+                    ctx.fill(rect)
+                }
+            }
+        }
+        
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .nearest
+        let sprite = SKSpriteNode(texture: texture)
+        sprite.alpha = 0.9
+        
+        return sprite
+    }
+    
+    private func animateFlames(deltaTime: TimeInterval) {
+        // Flickering animation: vary alpha and slight vertical movement
+        let basePositions: [CGPoint] = [
+            // Top flames (tallest)
+            CGPoint(x: -7, y: 10),   // Top-left
+            CGPoint(x: 0, y: 12),    // Top-center (tallest)
+            CGPoint(x: 7, y: 10),    // Top-right
+            
+            // Upper-middle flames
+            CGPoint(x: -10, y: 7),   // Upper-left
+            CGPoint(x: -4, y: 8),    // Upper-mid-left
+            CGPoint(x: 4, y: 8),     // Upper-mid-right
+            CGPoint(x: 10, y: 7),    // Upper-right
+            
+            // Middle flames (around the equator)
+            CGPoint(x: -12, y: 0),   // Middle-left
+            CGPoint(x: -8, y: 2),    // Mid-left-high
+            CGPoint(x: -8, y: -2),   // Mid-left-low
+            CGPoint(x: 8, y: 2),     // Mid-right-high
+            CGPoint(x: 8, y: -2),    // Mid-right-low
+            CGPoint(x: 12, y: 0),    // Middle-right
+            
+            // Lower flames
+            CGPoint(x: -10, y: -7),  // Lower-left
+            CGPoint(x: -4, y: -6),   // Lower-mid-left
+            CGPoint(x: 0, y: -8),    // Bottom-center
+            CGPoint(x: 4, y: -6),    // Lower-mid-right
+            CGPoint(x: 10, y: -7),   // Lower-right
+            
+            // Additional back flames (smaller, dimmer)
+            CGPoint(x: -6, y: 4),    // Fill-left
+            CGPoint(x: 6, y: 4),     // Fill-right
+            CGPoint(x: -6, y: -4),   // Fill-left-low
+            CGPoint(x: 6, y: -4),    // Fill-right-low
+        ]
+        
+        for (index, flame) in flames.enumerated() {
+            guard index < basePositions.count else { continue }
+            
+            // Each flame flickers at slightly different rates
+            let phaseOffset = CGFloat(index) * 0.3
+            let flickerSpeed: CGFloat = 8.0 + CGFloat(index % 5) * 0.5
+            
+            // Alpha flickering - back flames stay dimmer
+            let baseAlpha: CGFloat = index >= 19 ? 0.6 : 0.85
+            let alpha = baseAlpha + sin(CGFloat(animationTime) * flickerSpeed + phaseOffset) * 0.15
+            flame.alpha = alpha
+            
+            // Vertical bobbing (small movement) - varies by position
+            let bobAmount: CGFloat = index < 7 ? 2.0 : 1.5  // Top flames bob more
+            let bobSpeed: CGFloat = 10.0 + CGFloat(index % 7)
+            let yOffset = sin(CGFloat(animationTime) * bobSpeed + phaseOffset) * bobAmount
+            
+            // Horizontal sway for side flames
+            let swayAmount: CGFloat = 0.5
+            let swaySpeed: CGFloat = 6.0 + CGFloat(index % 4)
+            let xOffset = cos(CGFloat(animationTime) * swaySpeed + phaseOffset) * swayAmount
+            
+            // Apply to position (using base position + offsets)
+            let basePosition = basePositions[index]
+            flame.position = CGPoint(x: basePosition.x + xOffset, y: basePosition.y + yOffset)
+        }
+    }
+}
+
+/// Explode On Contact accessory - causes the ball to explode instantly when hit
+/// Used by 11-balls to trigger massive explosion on any collision
+/// This accessory is completely invisible - no visual indicators
+final class ExplodeOnContactAccessory: BallAccessoryProtocol {
+    let id = "explodeOnContact"
+    let visualNode = SKNode()  // Empty - no visuals for this accessory
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // No visuals - this is a pure ability accessory
+        // The ball's striped appearance is enough to show it's dangerous
+        
+        #if DEBUG
+        print("💣 Explode On Contact accessory attached to \(ball.ballKind) ball (invisible)")
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        self.ball = nil
+        
+        #if DEBUG
+        print("💣 Explode On Contact accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // No update needed - the damage system handles explosion on any damage
+        // This accessory is purely a marker that changes behavior in BallDamageSystem
+    }
+}
+
+/// Temporary Burning accessory - spreads on contact and disappears after dealing 20 damage
+/// Created when a ball with burning touches another ball
+final class TempBurningAccessory: BallAccessoryProtocol {
+    let id = "tempBurning"
+    let visualNode = SKNode()
+    var preventsSinking: Bool { return false }
+    
+    private weak var ball: BlockBall?
+    private var damageTimer: TimeInterval = 0
+    private let damageInterval: TimeInterval = 0.5  // Deal damage every 0.5 seconds
+    private let damageAmount: CGFloat = 1.0  // 1 HP per tick
+    private var totalDamageDealt: CGFloat = 0.0  // Track total damage
+    private let maxTotalDamage: CGFloat = 20.0  // Burn wears off after 20 damage
+    
+    // Flame animation properties (same as regular burning)
+    private var flames: [SKSpriteNode] = []
+    private let blockSize: CGFloat = 5.0
+    private var animationTime: TimeInterval = 0
+    
+    func onAttach(to ball: BlockBall) {
+        self.ball = ball
+        
+        // Check if this is an 11-ball - if so, explode immediately!
+        if ball.ballKind == .eleven {
+            #if DEBUG
+            print("💥 11-ball got temp burning - EXPLODING IMMEDIATELY!")
+            #endif
+            
+            // Explode the ball through the damage system (instant death)
+            if let scene = ball.scene as? StarfieldScene,
+               let damageSystem = scene.damageSystem {
+                damageSystem.applyDirectDamage(to: ball, amount: 9999)
+            }
+            
+            return  // Don't bother creating flames, ball is exploding
+        }
+        
+        // Create flame animation
+        createFlameAnimation()
+        
+        // Add visual node to ball's visual container (no physics!)
+        ball.visualContainer.addChild(visualNode)
+        
+        #if DEBUG
+        print("🔥 Temp Burning accessory attached to \(ball.ballKind) ball (will wear off after 20 damage)")
+        if ball.ballKind == .seven {
+            print("   (7-ball is immune to burning damage but can still spread it)")
+        }
+        #endif
+    }
+    
+    func onDetach(from ball: BlockBall) {
+        visualNode.removeFromParent()
+        flames.removeAll()
+        self.ball = nil
+        
+        #if DEBUG
+        print("🔥 Temp Burning accessory detached")
+        #endif
+    }
+    
+    func update(ball: BlockBall, deltaTime: TimeInterval) {
+        // Animate the flames
+        animationTime += deltaTime
+        animateFlames(deltaTime: deltaTime)
+        
+        // Apply damage over time (except to 7-ball which is immune)
+        if ball.ballKind != .seven {
+            damageTimer += deltaTime
+            
+            if damageTimer >= damageInterval {
+                damageTimer = 0
+                
+                // Apply damage through the damage system
+                if let scene = ball.scene as? StarfieldScene,
+                   let damageSystem = scene.damageSystem {
+                    damageSystem.applyDirectDamage(to: ball, amount: damageAmount)
+                    
+                    // Track total damage dealt
+                    totalDamageDealt += damageAmount
+                    
+                    #if DEBUG
+                    print("🔥 Temp Burning damage: \(damageAmount) HP to \(ball.ballKind) ball (total: \(Int(totalDamageDealt))/20)")
+                    #endif
+                    
+                    // Check if burn should wear off
+                    if totalDamageDealt >= maxTotalDamage {
+                        #if DEBUG
+                        print("🔥 Temp Burning wore off after dealing 20 damage!")
+                        #endif
+                        
+                        // Remove this accessory
+                        BallAccessoryManager.shared.removeAccessory(id: "tempBurning", from: ball)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func createFlameAnimation() {
+        // Create multiple flame sprites at different positions
+        // Flames completely engulf the ball in all directions
+        
+        let flamePositions: [CGPoint] = [
+            // Top flames (tallest)
+            CGPoint(x: -7, y: 10),   // Top-left
+            CGPoint(x: 0, y: 12),    // Top-center (tallest)
+            CGPoint(x: 7, y: 10),    // Top-right
+            
+            // Upper-middle flames
+            CGPoint(x: -10, y: 7),   // Upper-left
+            CGPoint(x: -4, y: 8),    // Upper-mid-left
+            CGPoint(x: 4, y: 8),     // Upper-mid-right
+            CGPoint(x: 10, y: 7),    // Upper-right
+            
+            // Middle flames (around the equator)
+            CGPoint(x: -12, y: 0),   // Middle-left
+            CGPoint(x: -8, y: 2),    // Mid-left-high
+            CGPoint(x: -8, y: -2),   // Mid-left-low
+            CGPoint(x: 8, y: 2),     // Mid-right-high
+            CGPoint(x: 8, y: -2),    // Mid-right-low
+            CGPoint(x: 12, y: 0),    // Middle-right
+            
+            // Lower flames
+            CGPoint(x: -10, y: -7),  // Lower-left
+            CGPoint(x: -4, y: -6),   // Lower-mid-left
+            CGPoint(x: 0, y: -8),    // Bottom-center
+            CGPoint(x: 4, y: -6),    // Lower-mid-right
+            CGPoint(x: 10, y: -7),   // Lower-right
+            
+            // Additional back flames (smaller, dimmer)
+            CGPoint(x: -6, y: 4),    // Fill-left
+            CGPoint(x: 6, y: 4),     // Fill-right
+            CGPoint(x: -6, y: -4),   // Fill-left-low
+            CGPoint(x: 6, y: -4),    // Fill-right-low
+        ]
+        
+        for (index, position) in flamePositions.enumerated() {
+            // Center top flame (index 1) is tallest, others vary
+            let isTall = index == 1
+            let flame = createFlameSprite(tall: isTall)
+            flame.position = position
+            flame.zPosition = 5 // Above ball but below UI
+            
+            // Vary initial alpha for depth effect (flames further from camera are dimmer)
+            if index >= 19 { // Back fill flames
+                flame.alpha = 0.6
+            }
+            
+            flames.append(flame)
+            visualNode.addChild(flame)
+        }
+    }
+    
+    private func createFlameSprite(tall: Bool) -> SKSpriteNode {
+        // Create a flame texture using blocks
+        let flameWidth = 2
+        let flameHeight = tall ? 4 : 3
+        let size = CGSize(width: CGFloat(flameWidth) * blockSize, 
+                         height: CGFloat(flameHeight) * blockSize)
+        
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            let ctx = context.cgContext
+            
+            // Flame gradient: yellow at bottom, orange in middle, red at top
+            let colors: [UIColor] = [
+                UIColor(red: 1.0, green: 1.0, blue: 0.0, alpha: 0.9),  // Yellow
+                UIColor(red: 1.0, green: 0.6, blue: 0.0, alpha: 0.85), // Orange
+                UIColor(red: 1.0, green: 0.2, blue: 0.0, alpha: 0.8),  // Red-orange
+                UIColor(red: 0.8, green: 0.0, blue: 0.0, alpha: 0.7)   // Dark red
+            ]
+            
+            // Draw flame blocks from bottom to top
+            for row in 0..<flameHeight {
+                for col in 0..<flameWidth {
+                    // Taper at the top (skip some blocks)
+                    if row == flameHeight - 1 && col == 1 && !tall {
+                        continue // Skip top-right for shorter flames
+                    }
+                    
+                    let colorIndex = min(row, colors.count - 1)
+                    let color = colors[colorIndex]
+                    
+                    let x = CGFloat(col) * blockSize
+                    let y = CGFloat(row) * blockSize
+                    let rect = CGRect(x: x, y: y, width: blockSize, height: blockSize)
+                    
+                    ctx.setFillColor(color.cgColor)
+                    ctx.fill(rect)
+                }
+            }
+        }
+        
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .nearest
+        let sprite = SKSpriteNode(texture: texture)
+        sprite.alpha = 0.9
+        
+        return sprite
+    }
+    
+    private func animateFlames(deltaTime: TimeInterval) {
+        // Flickering animation: vary alpha and slight vertical movement
+        let basePositions: [CGPoint] = [
+            // Top flames (tallest)
+            CGPoint(x: -7, y: 10),   // Top-left
+            CGPoint(x: 0, y: 12),    // Top-center (tallest)
+            CGPoint(x: 7, y: 10),    // Top-right
+            
+            // Upper-middle flames
+            CGPoint(x: -10, y: 7),   // Upper-left
+            CGPoint(x: -4, y: 8),    // Upper-mid-left
+            CGPoint(x: 4, y: 8),     // Upper-mid-right
+            CGPoint(x: 10, y: 7),    // Upper-right
+            
+            // Middle flames (around the equator)
+            CGPoint(x: -12, y: 0),   // Middle-left
+            CGPoint(x: -8, y: 2),    // Mid-left-high
+            CGPoint(x: -8, y: -2),   // Mid-left-low
+            CGPoint(x: 8, y: 2),     // Mid-right-high
+            CGPoint(x: 8, y: -2),    // Mid-right-low
+            CGPoint(x: 12, y: 0),    // Middle-right
+            
+            // Lower flames
+            CGPoint(x: -10, y: -7),  // Lower-left
+            CGPoint(x: -4, y: -6),   // Lower-mid-left
+            CGPoint(x: 0, y: -8),    // Bottom-center
+            CGPoint(x: 4, y: -6),    // Lower-mid-right
+            CGPoint(x: 10, y: -7),   // Lower-right
+            
+            // Additional back flames (smaller, dimmer)
+            CGPoint(x: -6, y: 4),    // Fill-left
+            CGPoint(x: 6, y: 4),     // Fill-right
+            CGPoint(x: -6, y: -4),   // Fill-left-low
+            CGPoint(x: 6, y: -4),    // Fill-right-low
+        ]
+        
+        for (index, flame) in flames.enumerated() {
+            guard index < basePositions.count else { continue }
+            
+            // Each flame flickers at slightly different rates
+            let phaseOffset = CGFloat(index) * 0.3
+            let flickerSpeed: CGFloat = 8.0 + CGFloat(index % 5) * 0.5
+            
+            // Alpha flickering - back flames stay dimmer
+            let baseAlpha: CGFloat = index >= 19 ? 0.6 : 0.85
+            let alpha = baseAlpha + sin(CGFloat(animationTime) * flickerSpeed + phaseOffset) * 0.15
+            flame.alpha = alpha
+            
+            // Vertical bobbing (small movement) - varies by position
+            let bobAmount: CGFloat = index < 7 ? 2.0 : 1.5  // Top flames bob more
+            let bobSpeed: CGFloat = 10.0 + CGFloat(index % 7)
+            let yOffset = sin(CGFloat(animationTime) * bobSpeed + phaseOffset) * bobAmount
+            
+            // Horizontal sway for side flames
+            let swayAmount: CGFloat = 0.5
+            let swaySpeed: CGFloat = 6.0 + CGFloat(index % 4)
+            let xOffset = cos(CGFloat(animationTime) * swaySpeed + phaseOffset) * swayAmount
+            
+            // Apply to position (using base position + offsets)
+            let basePosition = basePositions[index]
+            flame.position = CGPoint(x: basePosition.x + xOffset, y: basePosition.y + yOffset)
+        }
+    }
+}
+
 /// Manager for ball accessories
 final class BallAccessoryManager {
     static let shared = BallAccessoryManager()
@@ -697,6 +1243,9 @@ final class BallAccessoryManager {
     private func registerDefaultAccessories() {
         // Register built-in accessories
         registerAccessory(FlyingAccessory())
+        registerAccessory(BurningAccessory())
+        registerAccessory(TempBurningAccessory())
+        registerAccessory(ExplodeOnContactAccessory())
         
         // Register all hat styles
         registerAccessory(HatAccessory(style: .topHat))
@@ -731,6 +1280,12 @@ final class BallAccessoryManager {
         switch id {
         case "flying":
             accessory = FlyingAccessory()
+        case "burning":
+            accessory = BurningAccessory()
+        case "tempBurning":
+            accessory = TempBurningAccessory()
+        case "explodeOnContact":
+            accessory = ExplodeOnContactAccessory()
         case "hat_topHat":
             accessory = HatAccessory(style: .topHat)
         case "hat_bowler":
@@ -889,5 +1444,15 @@ final class BallAccessoryManager {
     func hasAnyHat(ball: BlockBall) -> Bool {
         let hatIDs = ["hat_topHat", "hat_bowler", "hat_baseball", "hat_wizard", "hat_cowboy"]
         return hatIDs.contains { hasAccessory(ball: ball, id: $0) }
+    }
+    
+    /// Check if a ball has any kind of burning (regular or temp)
+    func hasBurning(ball: BlockBall) -> Bool {
+        return hasAccessory(ball: ball, id: "burning") || hasAccessory(ball: ball, id: "tempBurning")
+    }
+    
+    /// Check if a ball has the explode on contact ability
+    func hasExplodeOnContact(ball: BlockBall) -> Bool {
+        return hasAccessory(ball: ball, id: "explodeOnContact")
     }
 }

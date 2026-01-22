@@ -82,6 +82,9 @@ final class BallDamageSystem {
         
         /// Maximum number of times a 4-ball can be triggered before being destroyed (default 2)
         var fourBallMaxTriggers: Int = 2
+        
+        /// 11-ball explosion radius in blocks (default 10.0)
+        var elevenBallExplosionRadius: CGFloat = 10.0
     }
     
     // MARK: - Ball Health State
@@ -395,6 +398,20 @@ final class BallDamageSystem {
                 print("   💥 Eleven ball damage multiplier applied: \(rawDamage) -> \(actualDamage)")
             }
             #endif
+        }
+        
+        // SPECIAL: If this is an 11-ball with explodeOnContact accessory, ANY damage triggers instant explosion
+        if ball.ballKind == .eleven && BallAccessoryManager.shared.hasAccessory(ball: ball, id: "explodeOnContact") {
+            #if DEBUG
+            if debugEnabled {
+                print("   💣 11-ball has explodeOnContact accessory - triggering instant explosion!")
+            }
+            #endif
+            
+            // Set HP to 0 to trigger explosion
+            health.currentHP = 0
+            handleBallDestruction(ball, health: health)
+            return  // Skip normal damage processing
         }
         
         health.currentHP = max(0, health.currentHP - actualDamage)
@@ -967,7 +984,7 @@ final class BallDamageSystem {
         #endif
         
         let blockSize: CGFloat = 5.0 // Size of each felt block
-        let explosionRadius: CGFloat = 8 * blockSize // Outer radius = 8 blocks (inner 5 solid + 3 ragged)
+        let explosionRadius: CGFloat = config.elevenBallExplosionRadius * blockSize // Use config value
         
         // Create shockwave visual effect
         createShockwave(at: position, radius: explosionRadius)
@@ -1106,7 +1123,12 @@ final class BallDamageSystem {
         let innerRadiusBlocks = max(0, radiusBlocks - 3)
         let innerRadius = CGFloat(innerRadiusBlocks) * blockSize
         
+        print("💥 Destruction phase: radius=\(radius), outerRadius=\(outerRadius), innerRadius=\(innerRadius)")
+        print("   radiusBlocks=\(radiusBlocks), innerRadiusBlocks=\(innerRadiusBlocks)")
+        print("   Blocks in radius to evaluate: \(feltBlocksInRadius.count)")
+        
         var destroyedCount = 0
+        var skippedCount = 0
         
         for block in feltBlocksInRadius {
             let dx = block.position.x - position.x
@@ -1114,16 +1136,22 @@ final class BallDamageSystem {
             let distance = hypot(dx, dy)
             
             var shouldDestroy = false
+            var reason = ""
             if distance <= innerRadius {
                 // Inner core: always destroy
                 shouldDestroy = true
+                reason = "inner core (dist: \(Int(distance)))"
             } else if distance <= outerRadius && outerRadius > innerRadius {
                 // Outer ragged ring: probabilistic destruction for ragged effect
                 let edgeRatio = (distance - innerRadius) / (outerRadius - innerRadius)
                 let baseChance: CGFloat = 1.0 - edgeRatio  // higher chance closer to inner edge
                 let randomFactor = CGFloat.random(in: 0.7...1.3)
                 let finalChance = min(max(baseChance * randomFactor, 0), 1)
-                shouldDestroy = CGFloat.random(in: 0...1) < finalChance
+                let roll = CGFloat.random(in: 0...1)
+                shouldDestroy = roll < finalChance
+                reason = "ragged ring (dist: \(Int(distance)), chance: \(String(format: "%.2f", finalChance)), roll: \(String(format: "%.2f", roll)), \(shouldDestroy ? "YES" : "NO"))"
+            } else {
+                reason = "outside range (dist: \(Int(distance)))"
             }
             
             if shouldDestroy {
@@ -1136,55 +1164,83 @@ final class BallDamageSystem {
                     block.removeFromParent()
                 }
                 destroyedCount += 1
+            } else {
+                skippedCount += 1
             }
         }
         
-        print("💥 Destroyed \(destroyedCount) felt blocks out of \(feltBlocksInRadius.count) in radius")
+        print("💥 Destroyed \(destroyedCount) felt blocks, skipped \(skippedCount) out of \(feltBlocksInRadius.count) in radius")
         
-        // DON'T switch back to texture mode - stay in block mode so holes work for ball physics
-        // The ball's isFeltBlock() detection relies on finding individual block sprites
-        // A texture sprite covers the whole area even where there are holes
-        // Performance note: This means we keep ~5800 blocks after explosion, but holes work correctly
+        // IMMEDIATE: Rebake texture with hole right away so it appears instantly
+        // The exploding block animations will play on top of the hole
+        if let fm = activeFeltManager {
+            fm.switchBackToTextureMode()
+            print("✅ Immediately rebaked texture with explosion hole")
+        }
     }
     
-    /// Explode a single felt block outward from explosion
+    /// Explode a single felt block outward from explosion - creates debris particles
     private func explodeFeltBlock(_ block: SKSpriteNode, explosionCenter: CGPoint, inScene scene: SKScene) {
-        // Create a copy for the explosion animation (original will be removed)
-        let explodingBlock = SKSpriteNode(color: block.color, size: block.size)
-        explodingBlock.position = block.position
-        explodingBlock.zPosition = 2500  // Above everything for explosion
-        explodingBlock.texture?.filteringMode = .nearest
-        explodingBlock.colorBlendFactor = block.colorBlendFactor
-        explodingBlock.alpha = block.alpha
-        
-        scene.addChild(explodingBlock)
-        
         // Calculate explosion direction (radial from explosion center)
         let dx = block.position.x - explosionCenter.x
         let dy = block.position.y - explosionCenter.y
         let distance = hypot(dx, dy)
         
-        // Normalize and apply explosive force
-        let explosionSpeed: CGFloat = CGFloat.random(in: 150...250)
-        let vx = (distance > 0) ? (dx / distance) * explosionSpeed : CGFloat.random(in: -1...1) * explosionSpeed
-        let vy = (distance > 0) ? (dy / distance) * explosionSpeed : CGFloat.random(in: -1...1) * explosionSpeed
+        // Normalize direction
+        let dirX = (distance > 0) ? (dx / distance) : CGFloat.random(in: -1...1)
+        let dirY = (distance > 0) ? (dy / distance) : CGFloat.random(in: -1...1)
         
-        let duration: TimeInterval = 0.9
+        // Create 2-3 block-sized debris particles per felt block
+        let debrisCount = Int.random(in: 2...3)
+        let blockSize: CGFloat = 5.0
         
-        // Apply chaotic rotation
-        let randomRotation = CGFloat.random(in: -(.pi * 4)...(.pi * 4))
-        let rotate = SKAction.rotate(byAngle: randomRotation, duration: duration)
+        for _ in 0..<debrisCount {
+            // Each debris is full block size (5×5 pixels)
+            let debris = SKSpriteNode(color: block.color, size: CGSize(width: blockSize, height: blockSize))
+            
+            // Start at block position with slight random offset
+            let offsetX = CGFloat.random(in: -2...2)
+            let offsetY = CGFloat.random(in: -2...2)
+            debris.position = CGPoint(x: block.position.x + offsetX, y: block.position.y + offsetY)
+            debris.zPosition = 2500  // Above everything
+            debris.texture?.filteringMode = .nearest
+            
+            scene.addChild(debris)
+            
+            // Explosion speed with variation
+            let baseSpeed: CGFloat = CGFloat.random(in: 150...250)
+            let speedVariation = CGFloat.random(in: 0.8...1.2)
+            let speed = baseSpeed * speedVariation
+            
+            // Add some randomness to direction (spray effect)
+            let angleVariation = CGFloat.random(in: -0.4...0.4)
+            let finalDirX = dirX * cos(angleVariation) - dirY * sin(angleVariation)
+            let finalDirY = dirX * sin(angleVariation) + dirY * cos(angleVariation)
+            
+            let vx = finalDirX * speed
+            let vy = finalDirY * speed
+            
+            let duration: TimeInterval = TimeInterval.random(in: 0.5...0.8)
+            
+            // Rotation
+            let randomRotation = CGFloat.random(in: -(.pi * 3)...(.pi * 3))
+            let rotate = SKAction.rotate(byAngle: randomRotation, duration: duration)
+            
+            // Movement with slight downward arc (gravity effect)
+            let moveAction = SKAction.moveBy(x: vx * CGFloat(duration), 
+                                            y: vy * CGFloat(duration) - 30, // Gravity pull
+                                            duration: duration)
+            let fadeOut = SKAction.fadeOut(withDuration: duration * 0.7) // Start fading 70% through
+            fadeOut.timingMode = .easeIn
+            
+            // NO SCALE DOWN - keep blocks full size!
+            let group = SKAction.group([moveAction, fadeOut, rotate])
+            let remove = SKAction.removeFromParent()
+            
+            debris.run(SKAction.sequence([group, remove]))
+        }
         
-        let moveAction = SKAction.moveBy(x: vx, y: vy, duration: duration)
-        let fadeOut = SKAction.fadeOut(withDuration: duration)
-        let scaleDown = SKAction.scale(to: 0.15, duration: duration)
-        
-        let group = SKAction.group([moveAction, fadeOut, scaleDown, rotate])
-        let remove = SKAction.removeFromParent()
-        
-        explodingBlock.run(SKAction.sequence([group, remove]))
-        
-        // Remove original felt block from scene (creates the hole!)
+        // Immediately remove original felt block from scene (creates the hole!)
         block.removeFromParent()
     }
     

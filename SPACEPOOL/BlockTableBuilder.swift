@@ -103,6 +103,20 @@ class FeltManager {
         let size = CGSize(width: feltRect.width, height: feltRect.height)
         let renderer = UIGraphicsImageRenderer(size: size)
         
+        // Count destroyed blocks for debugging
+        var destroyedCount = 0
+        var activeCount = 0
+        for row in 0..<gridRows {
+            for col in 0..<gridCols {
+                if feltGrid[row][col] {
+                    activeCount += 1
+                } else {
+                    destroyedCount += 1
+                }
+            }
+        }
+        print("🎨 Baking felt texture: \(activeCount) active blocks, \(destroyedCount) destroyed/pockets")
+        
         let image = renderer.image { context in
             let ctx = context.cgContext
             ctx.setFillColor(feltColor.cgColor)
@@ -111,9 +125,12 @@ class FeltManager {
                 for col in 0..<gridCols {
                     if !feltGrid[row][col] { continue }  // Skip destroyed blocks
                     
+                    // CRITICAL FIX: Flip Y coordinate because UIGraphics has Y-down, SpriteKit has Y-up
+                    let flippedRow = gridRows - 1 - row
+                    
                     let rect = CGRect(
                         x: CGFloat(col) * blockSize,
-                        y: CGFloat(row) * blockSize,
+                        y: CGFloat(flippedRow) * blockSize,
                         width: blockSize,
                         height: blockSize
                     )
@@ -128,69 +145,104 @@ class FeltManager {
     // MARK: - Block Mode (during explosions)
     
     func switchToBlockMode(aroundPosition position: CGPoint, radius: CGFloat) {
-        // Already in block mode, no need to switch
-        if !isTextureMode {
+        print("🔄 switchToBlockMode called at \(position), radius: \(radius)")
+        print("   isTextureMode: \(isTextureMode)")
+        print("   feltRect: \(feltRect)")
+        print("   gridCols: \(gridCols), gridRows: \(gridRows)")
+        print("   Current individualBlocks count: \(individualBlocks.count)")
+        
+        guard let container = container else {
+            print("   ❌ ERROR: No container!")
             return
         }
         
-        guard let container = container else { return }
+        // PERFORMANCE FIX: Keep texture as background but create blocks for explosion area
+        // Individual blocks will be destroyed, revealing the texture underneath
+        // After destruction, we'll rebake the texture with holes
         
-        // Remove texture sprite
-        feltTextureSprite?.removeFromParent()
-        feltTextureSprite = nil
+        // Calculate affected region (expand radius for margin)
+        let effectRadius = radius * 2.0  // Create blocks in a larger area than explosion
+        print("   effectRadius: \(effectRadius)")
         
-        // Create ALL felt blocks (not just in explosion radius)
-        // This ensures the entire felt is visible after switching from texture
-        for row in 0..<gridRows {
-            for col in 0..<gridCols {
-                if !feltGrid[row][col] { continue }  // Skip destroyed blocks (pockets)
-                
+        // Find row/col bounds for affected region
+        let minCol = max(0, Int((position.x - effectRadius - feltRect.minX) / blockSize))
+        let maxCol = min(gridCols - 1, Int((position.x + effectRadius - feltRect.minX) / blockSize))
+        let minRow = max(0, Int((position.y - effectRadius - feltRect.minY) / blockSize))
+        let maxRow = min(gridRows - 1, Int((position.y + effectRadius - feltRect.minY) / blockSize))
+        
+        print("   Grid bounds: rows \(minRow)...\(maxRow), cols \(minCol)...\(maxCol)")
+        
+        // Only create blocks in affected region that don't already exist as individual blocks
+        var blockCount = 0
+        var skippedPocket = 0
+        var skippedDestroyed = 0
+        var skippedOutOfRange = 0
+        var skippedAlreadyExists = 0
+        
+        for row in minRow...maxRow {
+            for col in minCol...maxCol {
                 let px = feltRect.minX + CGFloat(col) * blockSize + blockSize / 2
                 let py = feltRect.minY + CGFloat(row) * blockSize + blockSize / 2
                 
+                // Check if this position is inside a pocket (always skip pockets)
+                var isInPocket = false
+                for pocketCenter in pocketCenters {
+                    let distToPocket = hypot(px - pocketCenter.x, py - pocketCenter.y)
+                    if distToPocket <= pocketRadius {
+                        isInPocket = true
+                        break
+                    }
+                }
+                if isInPocket {
+                    skippedPocket += 1
+                    continue
+                }
+                
+                // Skip if this grid cell was already destroyed
+                if !feltGrid[row][col] {
+                    skippedDestroyed += 1
+                    continue
+                }
+                
+                // Check if within effect radius
+                let dx = px - position.x
+                let dy = py - position.y
+                let distanceToCenter = hypot(dx, dy)
+                if distanceToCenter > effectRadius {
+                    skippedOutOfRange += 1
+                    continue
+                }
+                
+                // Check if a block already exists at this position (from a previous explosion)
+                let blockAlreadyExists = individualBlocks.contains { existingBlock in
+                    let distToExisting = hypot(existingBlock.position.x - px, existingBlock.position.y - py)
+                    return distToExisting < blockSize * 0.5  // Within half a block size = same position
+                }
+                
+                if blockAlreadyExists {
+                    skippedAlreadyExists += 1
+                    continue
+                }
+                
                 let block = SKSpriteNode(color: feltColor, size: CGSize(width: blockSize, height: blockSize))
                 block.position = CGPoint(x: px, y: py)
-                block.zPosition = 21
+                block.zPosition = 22  // Above texture layer
                 block.texture?.filteringMode = .nearest
                 block.name = "FeltBlock_\(row)_\(col)"
                 
                 container.addChild(block)
                 individualBlocks.append(block)
+                blockCount += 1
             }
         }
+        
+        // Keep texture visible - blocks will render on top
+        // This creates a layered effect: texture background + individual blocks for explosion area
         
         isTextureMode = false
-        print("🔄 Switched to block mode: created \(individualBlocks.count) felt blocks")
-    }
-    
-    func destroyBlocksInRadius(position: CGPoint, radius: CGFloat) -> [SKSpriteNode] {
-        var destroyedBlocks: [SKSpriteNode] = []
-        
-        // Find and destroy blocks in radius
-        for block in individualBlocks {
-            let dx = block.position.x - position.x
-            let dy = block.position.y - position.y
-            let distance = hypot(dx, dy)
-            
-            if distance <= radius {
-                // Update grid state
-                let col = Int((block.position.x - feltRect.minX) / blockSize)
-                let row = Int((block.position.y - feltRect.minY) / blockSize)
-                
-                if row >= 0 && row < gridRows && col >= 0 && col < gridCols {
-                    feltGrid[row][col] = false
-                }
-                
-                destroyedBlocks.append(block)
-            }
-        }
-        
-        // Remove from tracking
-        individualBlocks.removeAll { block in
-            destroyedBlocks.contains { $0 === block }
-        }
-        
-        return destroyedBlocks
+        print("🔄 Switched to hybrid mode: created \(blockCount) new felt blocks")
+        print("   Skipped: \(skippedPocket) pockets, \(skippedDestroyed) destroyed, \(skippedOutOfRange) out of range, \(skippedAlreadyExists) already exist")
+        print("   Total individualBlocks now: \(individualBlocks.count)")
     }
     
     /// Remove a single felt block from the scene and update internal state
@@ -200,6 +252,14 @@ class FeltManager {
         let row = Int((block.position.y - feltRect.minY) / blockSize)
         if row >= 0 && row < gridRows && col >= 0 && col < gridCols {
             feltGrid[row][col] = false
+            
+            #if DEBUG
+            print("🕳️ FeltManager removing block at row:\(row) col:\(col) position:\(block.position)")
+            #endif
+        } else {
+            #if DEBUG
+            print("⚠️ FeltManager: block position out of grid bounds: row:\(row) col:\(col)")
+            #endif
         }
         
         // Remove from tracking list
@@ -210,15 +270,28 @@ class FeltManager {
     }
     
     func switchBackToTextureMode() {
-        guard !isTextureMode, let container = container else { return }
+        print("🔄 switchBackToTextureMode called")
+        print("   isTextureMode: \(isTextureMode)")
+        print("   individualBlocks count: \(individualBlocks.count)")
+        
+        guard !isTextureMode, let container = container else {
+            print("   ⚠️ Guard failed - already in texture mode or no container")
+            return
+        }
         
         // Remove all individual blocks
+        print("   Removing \(individualBlocks.count) individual blocks...")
         for block in individualBlocks {
             block.removeFromParent()
         }
         individualBlocks.removeAll()
         
+        // Remove old texture (if it still exists from hybrid mode)
+        print("   Removing old texture sprite...")
+        feltTextureSprite?.removeFromParent()
+        
         // Bake new texture with holes
+        print("   Baking new texture with holes...")
         let texture = bakeFeltTexture()
         let sprite = SKSpriteNode(texture: texture)
         sprite.position = CGPoint(x: feltRect.midX, y: feltRect.midY)
@@ -249,6 +322,33 @@ class FeltManager {
         }
         
         return blocksInRadius
+    }
+    
+    /// Check if a grid position has been destroyed (for detecting explosion holes)
+    /// - Returns: true if the grid cell has been destroyed, false if it still exists
+    func isGridPositionDestroyed(row: Int, col: Int) -> Bool {
+        // Bounds check
+        guard row >= 0 && row < gridRows && col >= 0 && col < gridCols else {
+            #if DEBUG
+            // Log occasionally to avoid spam
+            if Int.random(in: 0..<100) == 0 {
+                print("🕳️ Grid position out of bounds: row:\(row) col:\(col) (bounds: 0..<\(gridRows), 0..<\(gridCols))")
+            }
+            #endif
+            return true  // Out of bounds = no felt
+        }
+        
+        // Check grid state
+        let isDestroyed = !feltGrid[row][col]
+        
+        #if DEBUG
+        // Log destroyed grid checks occasionally for debugging
+        if isDestroyed && Int.random(in: 0..<50) == 0 {
+            print("🕳️ Grid position destroyed: row:\(row) col:\(col)")
+        }
+        #endif
+        
+        return isDestroyed
     }
 }
 
